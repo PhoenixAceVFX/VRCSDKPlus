@@ -15,15 +15,15 @@ using AnimatorControllerParameter = UnityEngine.AnimatorControllerParameter;
 using AnimatorControllerParameterType = UnityEngine.AnimatorControllerParameterType;
 using Object = UnityEngine.Object;
 
-namespace DreadScripts.VRCSDKPlus
+namespace Editor
 {
-    internal sealed class VRCSDKPlus
+    internal abstract class VrcsdkPlus
     {
-        private static bool initialized;
-        private static GUIContent redWarnIcon;
-        private static GUIContent yellowWarnIcon;
-        private static GUIStyle centeredLabel => new GUIStyle(GUI.skin.label) {alignment = TextAnchor.MiddleCenter};
-        private static readonly string[] allPlayables =
+        private static bool _initialized;
+        private static GUIContent _redWarnIcon;
+        private static GUIContent _yellowWarnIcon;
+        private static GUIStyle CenteredLabel => new(GUI.skin.label) {alignment = TextAnchor.MiddleCenter};
+        private static readonly string[] AllPlayables =
         {
             "Base",
             "Additive",
@@ -35,25 +35,25 @@ namespace DreadScripts.VRCSDKPlus
             "IKPose"
         };
         
-        private static VRCAvatarDescriptor avatar;
-        private static VRCAvatarDescriptor[] validAvatars;
-        private static AnimatorControllerParameter[] validParameters;
+        private static VRCAvatarDescriptor _avatar;
+        private static VRCAvatarDescriptor[] _validAvatars;
+        private static AnimatorControllerParameter[] _validParameters;
 
-        private static string[] validPlayables;
-        private static int[] validPlayableIndexes;
+        private static string[] _validPlayables;
+        private static int[] _validPlayableIndexes;
 
         private static void InitConstants()
         {
-            if (initialized) return;
-            redWarnIcon = new GUIContent(EditorGUIUtility.IconContent("CollabError"));
+            if (_initialized) return;
+            _redWarnIcon = new GUIContent(EditorGUIUtility.IconContent("CollabError"));
             //advancedPopupMethod = typeof(EditorGUI).GetMethod("AdvancedPopup", BindingFlags.NonPublic | BindingFlags.Static, null, new[] { typeof(Rect), typeof(int), typeof(string[]) }, null);
-            yellowWarnIcon = new GUIContent(EditorGUIUtility.IconContent("d_console.warnicon.sml"));
-            initialized = true;
+            _yellowWarnIcon = new GUIContent(EditorGUIUtility.IconContent("d_console.warnicon.sml"));
+            _initialized = true;
         }
 
-        private static void RefreshAvatar(System.Func<VRCAvatarDescriptor, bool> favoredAvatar = null)
+        private static void RefreshAvatar(Func<VRCAvatarDescriptor, bool> favoredAvatar = null)
         {
-            RefreshAvatar(ref avatar, ref validAvatars, null, favoredAvatar);
+            RefreshAvatar(ref _avatar, ref _validAvatars, null, favoredAvatar);
             RefreshAvatarInfo();
         }
 
@@ -64,98 +64,96 @@ namespace DreadScripts.VRCSDKPlus
         }
         private static void RefreshValidParameters()
         {
-            if (!avatar)
+            if (!_avatar)
             {
-                validParameters = Array.Empty<AnimatorControllerParameter>();
+                _validParameters = Array.Empty<AnimatorControllerParameter>();
                 return;
             }
-            List<AnimatorControllerParameter> validParams = new List<AnimatorControllerParameter>();
-            foreach (var r in avatar.baseAnimationLayers.Concat(avatar.specialAnimationLayers).Select(p => p.animatorController).Concat(avatar.GetComponentsInChildren<Animator>(true).Select(a => a.runtimeAnimatorController)).Distinct())
+            var validParams = new List<AnimatorControllerParameter>();
+            foreach (var r in _avatar.baseAnimationLayers.Concat(_avatar.specialAnimationLayers).Select(p => p.animatorController).Concat(_avatar.GetComponentsInChildren<Animator>(true).Select(a => a.runtimeAnimatorController)).Distinct())
             {
                 if (!r) continue;
 
-                AnimatorController c = AssetDatabase.LoadAssetAtPath<AnimatorController>(AssetDatabase.GetAssetPath(r));
+                var c = AssetDatabase.LoadAssetAtPath<AnimatorController>(AssetDatabase.GetAssetPath(r));
                 if (c) validParams.AddRange(c.parameters);
             }
 
-            validParameters = validParams.Distinct().OrderBy(p => p.name).ToArray();
+            _validParameters = validParams.Distinct().OrderBy(p => p.name).ToArray();
         }
 
         private static void RefreshValidPlayables()
         {
-            if (!avatar)
+            if (!_avatar)
             {
-                validPlayables = Array.Empty<string>();
-                validPlayableIndexes = Array.Empty<int>();
+                _validPlayables = Array.Empty<string>();
+                _validPlayableIndexes = Array.Empty<int>();
                 return;
             }
-            List<(string, int)> myPlayables = new List<(string, int)>();
-            for (int i = 0; i < allPlayables.Length; i++)
+            var myPlayables = new List<(string, int)>();
+            for (var i = 0; i < AllPlayables.Length; i++)
             {
-                int index = i == 0 ? i : i + 1;
-                if (avatar.GetPlayableLayer((VRCAvatarDescriptor.AnimLayerType)index, out AnimatorController c))
+                var index = i == 0 ? i : i + 1;
+                if (_avatar.GetPlayableLayer((VRCAvatarDescriptor.AnimLayerType)index, out var c))
                 {
-                    myPlayables.Add((allPlayables[i], index));
+                    myPlayables.Add((AllPlayables[i], index));
                 }
             }
 
-            validPlayables = new string[myPlayables.Count];
-            validPlayableIndexes = new int[myPlayables.Count];
-            for (int i = 0; i < myPlayables.Count; i++)
+            _validPlayables = new string[myPlayables.Count];
+            _validPlayableIndexes = new int[myPlayables.Count];
+            for (var i = 0; i < myPlayables.Count; i++)
             {
-                validPlayables[i] = myPlayables[i].Item1;
-                validPlayableIndexes[i] = myPlayables[i].Item2;
+                _validPlayables[i] = myPlayables[i].Item1;
+                _validPlayableIndexes[i] = myPlayables[i].Item2;
             }
         }
 
-        internal sealed class VRCParamsPlus : Editor
+        internal sealed class VrcParamsPlus : UnityEditor.Editor
         {
-            private static int _MAX_MEMORY_COST;
-            private static int MAX_MEMORY_COST
+            private static int _maxMemoryCost;
+            private static int MaxMemoryCost
             {
                 get
                 {
-                    if (_MAX_MEMORY_COST == 0)
+                    if (_maxMemoryCost != 0) return _maxMemoryCost;
+                    try
+                    { _maxMemoryCost = (int) typeof(VRCExpressionParameters).GetField("MAX_PARAMETER_COST", BindingFlags.Static | BindingFlags.Public)?.GetValue(null)!; }
+                    catch 
                     {
-                        try
-                        { _MAX_MEMORY_COST = (int) typeof(VRCExpressionParameters).GetField("MAX_PARAMETER_COST", BindingFlags.Static | BindingFlags.Public).GetValue(null); }
-                        catch 
-                        {
-                            Debug.LogError("Failed to dynamically get MAX_PARAMETER_COST. Falling back to 256");
-                            _MAX_MEMORY_COST = 256;
-                        }
+                        Debug.LogError("Failed to dynamically get MAX_PARAMETER_COST. Falling back to 256");
+                        _maxMemoryCost = 256;
                     }
 
-                    return _MAX_MEMORY_COST;
+                    return _maxMemoryCost;
                 }
             }
 
-            private static readonly bool hasSyncingOption = typeof(VRCExpressionParameters.Parameter).GetField("networkSynced") != null;
-            private static bool editorActive = true;
-            private static bool canCleanup;
-            private int currentCost;
-            private string searchValue;
+            private static readonly bool HasSyncingOption = typeof(VRCExpressionParameters.Parameter).GetField("networkSynced") != null;
+            private static bool _editorActive = true;
+            private static bool _canCleanup;
+            private int _currentCost;
+            private string _searchValue;
 
-            private SerializedProperty parameterList;
-            private ReorderableList parametersOrderList;
+            private SerializedProperty _parameterList;
+            private ReorderableList _parametersOrderList;
 
             private ParameterStatus[] _parameterStatus;
 
-            private static VRCExpressionParameters mergeParams;
+            private static VRCExpressionParameters _mergeParams;
             
             public override void OnInspectorGUI()
             {
                 EditorGUI.BeginChangeCheck();
                 using (new GUILayout.HorizontalScope("helpbox"))
-                    DrawAdvancedAvatarFull(ref avatar, validAvatars, RefreshValidParameters, false, false, false, "Active Avatar");
+                    DrawAdvancedAvatarFull(ref _avatar, _validAvatars, RefreshValidParameters, false, false, false, "Active Avatar");
 
-                canCleanup = false;
+                _canCleanup = false;
                 serializedObject.Update();
                 HandleParameterEvents();
-                parametersOrderList.DoLayoutList();
+                _parametersOrderList.DoLayoutList();
                 serializedObject.ApplyModifiedProperties();
                 
-                if (canCleanup)
+                if (_canCleanup)
                 {
                     using (new GUILayout.HorizontalScope("helpbox"))
                     {
@@ -163,30 +161,28 @@ namespace DreadScripts.VRCSDKPlus
                         if (ClickableButton("Cleanup"))
                         {
                             RefreshValidParameters();
-                            parameterList.IterateArray((i, p) =>
+                            _parameterList.IterateArray((i, p) =>
                             {
                                 var name = p.FindPropertyRelative("name").stringValue;
                                 if (string.IsNullOrEmpty(name))
                                 {
                                     GreenLog($"Deleted blank parameter at index {i}");
-                                    parameterList.DeleteArrayElementAtIndex(i);
+                                    _parameterList.DeleteArrayElementAtIndex(i);
                                     return false;
                                 }
 
-                                if (avatar && validParameters.All(p2 => p2.name != name))
+                                if (_avatar && _validParameters.All(p2 => p2.name != name))
                                 {
                                     GreenLog($"Deleted invalid parameter {name}");
-                                    parameterList.DeleteArrayElementAtIndex(i);
+                                    _parameterList.DeleteArrayElementAtIndex(i);
                                     return false;
                                 }
 
-                                parameterList.IterateArray((j, p2) =>
+                                _parameterList.IterateArray((j, p2) =>
                                 {
-                                    if (name == p2.FindPropertyRelative("name").stringValue)
-                                    {
-                                        GreenLog($"Deleted duplicate parameter {name}");
-                                        parameterList.DeleteArrayElementAtIndex(j);
-                                    }
+                                    if (name != p2.FindPropertyRelative("name").stringValue) return false;
+                                    GreenLog($"Deleted duplicate parameter {name}");
+                                    _parameterList.DeleteArrayElementAtIndex(j);
 
                                     return false;
                                 }, i);
@@ -203,17 +199,17 @@ namespace DreadScripts.VRCSDKPlus
 
                 EditorGUI.BeginChangeCheck();
                 using (new GUILayout.HorizontalScope("helpbox"))
-                    mergeParams = (VRCExpressionParameters)EditorGUILayout.ObjectField("Merge Parameters", null, typeof(VRCExpressionParameters), true);
+                    _mergeParams = (VRCExpressionParameters)EditorGUILayout.ObjectField("Merge Parameters", null, typeof(VRCExpressionParameters), true);
                 if (EditorGUI.EndChangeCheck())
                 {
-                    if (mergeParams)
+                    if (_mergeParams)
                     {
-                        if (mergeParams.parameters != null)
+                        if (_mergeParams.parameters != null)
                         {
-                            VRCExpressionParameters myParams = (VRCExpressionParameters) target;
+                            var myParams = (VRCExpressionParameters) target;
                             Undo.RecordObject(myParams, "Merge Parameters");
-                            myParams.parameters = myParams.parameters.Concat(mergeParams.parameters.Select(p => 
-                                new VRCExpressionParameters.Parameter()
+                            myParams.parameters = myParams.parameters.Concat(_mergeParams.parameters.Select(p => 
+                                new VRCExpressionParameters.Parameter
                                 {
                                     defaultValue = p.defaultValue,
                                     name = p.name,
@@ -222,7 +218,7 @@ namespace DreadScripts.VRCSDKPlus
                                 })).ToArray();
                             EditorUtility.SetDirty(myParams);
                         }
-                        mergeParams = null;
+                        _mergeParams = null;
                     }
                 }
 
@@ -245,9 +241,9 @@ namespace DreadScripts.VRCSDKPlus
                             using (new GUILayout.HorizontalScope())
                             {
                                 GUILayout.FlexibleSpace();
-                                GUILayout.Label($"{currentCost} / {MAX_MEMORY_COST}");
-                                if (currentCost > MAX_MEMORY_COST)
-                                    GUILayout.Label(redWarnIcon, GUILayout.Width(20));
+                                GUILayout.Label($"{_currentCost} / {MaxMemoryCost}");
+                                if (_currentCost > MaxMemoryCost)
+                                    GUILayout.Label(_redWarnIcon, GUILayout.Width(20));
                                 GUILayout.FlexibleSpace();
 
                             }
@@ -255,11 +251,21 @@ namespace DreadScripts.VRCSDKPlus
 
                         GUILayout.FlexibleSpace();
                     }
-                } catch{}
+                }
+                catch
+                {
+                    // it sucks seeing this again
+                }
+
                 using (new GUILayout.HorizontalScope())
                 {
                     GUILayout.FlexibleSpace();
                     Link("Made By @Dreadrith ♡", "https://dreadrith.com/links");
+                }
+                using (new GUILayout.HorizontalScope())
+                {
+                    GUILayout.FlexibleSpace();
+                    Link("Refactored by RunaXR", "https://c0dera.in");
                 }
 
                 if (EditorGUI.EndChangeCheck()) RefreshAllParameterStatus();
@@ -270,36 +276,36 @@ namespace DreadScripts.VRCSDKPlus
                 InitConstants();
                 RefreshAvatar(a => a.expressionParameters == target);
 
-                parameterList = serializedObject.FindProperty("parameters");
+                _parameterList = serializedObject.FindProperty("parameters");
                 RefreshParametersOrderList();
                 RefreshAllParameterStatus();
             }
 
 
-            private static float guitest = 10;
+            private static float _guitest = 10;
             private void DrawElement(Rect rect, int index, bool active, bool focused)
             {
-                if (!(index < parameterList.arraySize && index >= 0)) return;
+                if (!(index < _parameterList.arraySize && index >= 0)) return;
                 
                 var screenRect = GUIUtility.GUIToScreenRect(rect);
                 if (screenRect.y > Screen.currentResolution.height || screenRect.y + screenRect.height < 0) return;
 
-                SerializedProperty parameter = parameterList.GetArrayElementAtIndex(index);
-                SerializedProperty name = parameter.FindPropertyRelative("name");
-                SerializedProperty valueType = parameter.FindPropertyRelative("valueType");
-                SerializedProperty defaultValue = parameter.FindPropertyRelative("defaultValue");
-                SerializedProperty saved = parameter.FindPropertyRelative("saved");
-                SerializedProperty synced = hasSyncingOption ? parameter.FindPropertyRelative("networkSynced") : null;
+                var parameter = _parameterList.GetArrayElementAtIndex(index);
+                var name = parameter.FindPropertyRelative("name");
+                var valueType = parameter.FindPropertyRelative("valueType");
+                var defaultValue = parameter.FindPropertyRelative("defaultValue");
+                var saved = parameter.FindPropertyRelative("saved");
+                var synced = HasSyncingOption ? parameter.FindPropertyRelative("networkSynced") : null;
 
                 var status = _parameterStatus[index];
-                bool parameterEmpty = status.parameterEmpty;
-                bool parameterAddable = status.parameterAddable;
-                bool parameterIsDuplicate = status.parameterIsDuplicate;
-                bool hasWarning = status.hasWarning;
-                string warnMsg = parameterEmpty ? "Blank Parameter" : parameterIsDuplicate ? "Duplicate Parameter! May cause issues!" : "Parameter not found in any playable controller of Active Avatar";
-                AnimatorControllerParameter matchedParameter = status.matchedParameter;
+                var parameterEmpty = status.ParameterEmpty;
+                var parameterAddable = status.ParameterAddable;
+                var parameterIsDuplicate = status.ParameterIsDuplicate;
+                var hasWarning = status.HasWarning;
+                var warnMsg = parameterEmpty ? "Blank Parameter" : parameterIsDuplicate ? "Duplicate Parameter! May cause issues!" : "Parameter not found in any playable controller of Active Avatar";
+                var matchedParameter = status.MatchedParameter;
 
-                canCleanup |= hasWarning;
+                _canCleanup |= hasWarning;
 
                 #region Rects
                 rect.y += 1;
@@ -308,10 +314,10 @@ namespace DreadScripts.VRCSDKPlus
 
                 Rect UseNext( float width, bool fixedWidth = false, float position = -1, bool fixedPosition = false)
                 {
-                    Rect currentRect = rect;
+                    var currentRect = rect;
                     currentRect.width = fixedWidth ? width : width * rect.width / 100;
                     currentRect.height = rect.height;
-                    currentRect.x = position == -1 ? rect.x : fixedPosition ? position : rect.x + position * rect.width / 100;
+                    currentRect.x = Mathf.Approximately(position, -1) ? rect.x : fixedPosition ? position : rect.x + position * rect.width / 100;
                     currentRect.y = rect.y;
                     rect.x += currentRect.width;
                     return currentRect;
@@ -319,51 +325,51 @@ namespace DreadScripts.VRCSDKPlus
 
                 Rect UseEnd(ref Rect r, float width, bool fixedWidth = false, float positionOffset = -1, bool fixedPosition = false)
                 {
-                    Rect returnRect = r;
+                    var returnRect = r;
                     returnRect.width = fixedWidth ? width : width * r.width / 100;
-                    float positionAdjust = positionOffset == -1 ? 0 : fixedPosition ? positionOffset : positionOffset * r.width / 100;
+                    var positionAdjust = Mathf.Approximately(positionOffset, -1) ? 0 : fixedPosition ? positionOffset : positionOffset * r.width / 100;
                     returnRect.x = r.x + r.width - returnRect.width - positionAdjust;
                     r.width -= returnRect.width + positionAdjust;
                     return returnRect;
                 }
                 
-                Rect contextRect = rect;
+                var contextRect = rect;
                 contextRect.x -= 20;
                 contextRect.width = 20;
                 
-                Rect removeRect = UseEnd(ref rect, 32, true, 4, true);
-                Rect syncedRect = hasSyncingOption ? UseEnd(ref rect, 18, true, 16f, true) : Rect.zero;
-                Rect savedRect = UseEnd(ref rect, 18, true, hasSyncingOption ? 34f : 16, true);
-                Rect defaultRect = UseEnd(ref rect, 85, true, 32, true);
-                Rect typeRect = UseEnd(ref rect, 85, true, 12, true);
-                Rect warnRect = UseEnd(ref rect, 18, true, 4, true);
-                Rect addRect = hasWarning && parameterAddable ? UseEnd(ref rect, 55, true, 4, true) : Rect.zero;
-                Rect dropdownRect = UseEnd(ref rect, 21, true, 1, true);
+                var removeRect = UseEnd(ref rect, 32, true, 4, true);
+                var syncedRect = HasSyncingOption ? UseEnd(ref rect, 18, true, 16f, true) : Rect.zero;
+                var savedRect = UseEnd(ref rect, 18, true, HasSyncingOption ? 34f : 16, true);
+                var defaultRect = UseEnd(ref rect, 85, true, 32, true);
+                var typeRect = UseEnd(ref rect, 85, true, 12, true);
+                var warnRect = UseEnd(ref rect, 18, true, 4, true);
+                var addRect = hasWarning && parameterAddable ? UseEnd(ref rect, 55, true, 4, true) : Rect.zero;
+                var dropdownRect = UseEnd(ref rect, 21, true, 1, true);
                 dropdownRect.x -= 3;
-                Rect nameRect = UseNext(100);
+                var nameRect = UseNext(100);
 
                 //Rect removeRect = new Rect(rect.x + rect.width - 36, rect.y, 32, 18);
                 //Rect syncedRect = new Rect(rect.x + rect.width - 60, rect.y, 14, 18);
                 #endregion
 
-                using (new EditorGUI.DisabledScope(!string.IsNullOrEmpty(searchValue) && !Regex.IsMatch(name.stringValue, $@"(?i){searchValue}")))
+                using (new EditorGUI.DisabledScope(!string.IsNullOrEmpty(_searchValue) && !Regex.IsMatch(name.stringValue, $"(?i){_searchValue}")))
                 {
                     //Hacky way to avoid proper UI Layout 
-                    string parameterFieldName = $"namefield{index}";
+                    var parameterFieldName = $"namefield{index}";
                     
-                    using (new EditorGUI.DisabledScope(validParameters.Length == 0))
+                    using (new EditorGUI.DisabledScope(_validParameters.Length == 0))
                         if (GUI.Button(dropdownRect, GUIContent.none, EditorStyles.popup))
                         {
 
-                            var filteredParameters = validParameters.Where(conParam => !parameterList.IterateArray((_, prop) => prop.FindPropertyRelative("name").stringValue == conParam.name)).ToArray();
+                            var filteredParameters = _validParameters.Where(conParam => !_parameterList.IterateArray((_, prop) => prop.FindPropertyRelative("name").stringValue == conParam.name)).ToArray();
                             if (filteredParameters.Any())
                             {
-                                VRCSDKPlusToolbox.CustomDropdown<AnimatorControllerParameter> textDropdown = new VRCSDKPlusToolbox.CustomDropdown<AnimatorControllerParameter>(null, filteredParameters, item =>
+                                var textDropdown = new VrcsdkPlusToolbox.CustomDropdown<AnimatorControllerParameter>(null, filteredParameters, item =>
                                 {
                                     using (new GUILayout.HorizontalScope())
                                     {
-                                        GUILayout.Label(item.value.name);
-                                        GUILayout.Label(item.value.type.ToString(), VRCSDKPlusToolbox.Styles.Label.TypeLabel, GUILayout.ExpandWidth(false));
+                                        GUILayout.Label(item.Value.name);
+                                        GUILayout.Label(item.Value.type.ToString(), VrcsdkPlusToolbox.Styles.Label.TypeLabel, GUILayout.ExpandWidth(false));
                                     }
                                 }, (_, conParam) =>
                                 {
@@ -381,37 +387,29 @@ namespace DreadScripts.VRCSDKPlus
                     EditorGUI.PropertyField(typeRect, valueType, GUIContent.none);
                     EditorGUI.PropertyField(savedRect, saved, GUIContent.none);
 
-                    GUI.Label(nameRect, matchedParameter != null ? $"({matchedParameter.type})" : "(?)", VRCSDKPlusToolbox.Styles.Label.RightPlaceHolder);
+                    GUI.Label(nameRect, matchedParameter != null ? $"({matchedParameter.type})" : "(?)", VrcsdkPlusToolbox.Styles.Label.RightPlaceHolder);
 
-                    if (hasSyncingOption) EditorGUI.PropertyField(syncedRect, synced, GUIContent.none);
+                    if (HasSyncingOption) EditorGUI.PropertyField(syncedRect, synced, GUIContent.none);
 
                     if (parameterAddable)
                     {
                         using (var change = new EditorGUI.ChangeCheckScope())
                         {
                             w_MakeRectLinkCursor(addRect);
-                            int dummy = EditorGUI.IntPopup(addRect, -1, validPlayables, validPlayableIndexes);
+                            var dummy = EditorGUI.IntPopup(addRect, -1, _validPlayables, _validPlayableIndexes);
                             if (change.changed)
                             {
                                 var playable = (VRCAvatarDescriptor.AnimLayerType) dummy;
-                                if (avatar.GetPlayableLayer(playable, out AnimatorController c))
+                                if (_avatar.GetPlayableLayer(playable, out var c))
                                 {
                                     if (c.parameters.All(p => p.name != name.stringValue))
                                     {
-                                        AnimatorControllerParameterType paramType;
-                                        switch (valueType.enumValueIndex)
+                                        var paramType = valueType.enumValueIndex switch
                                         {
-                                            case 0:
-                                                paramType = AnimatorControllerParameterType.Int;
-                                                break;
-                                            case 1:
-                                                paramType = AnimatorControllerParameterType.Float;
-                                                break;
-                                            default:
-                                            case 2:
-                                                paramType = AnimatorControllerParameterType.Bool;
-                                                break;
-                                        }
+                                            0 => AnimatorControllerParameterType.Int,
+                                            1 => AnimatorControllerParameterType.Float,
+                                            _ => AnimatorControllerParameterType.Bool
+                                        };
 
                                         c.AddParameter(new AnimatorControllerParameter()
                                         {
@@ -434,13 +432,13 @@ namespace DreadScripts.VRCSDKPlus
                         GUI.Label(addRect, "Add");
                     }
 
-                    if (hasWarning) GUI.Label(warnRect, new GUIContent(yellowWarnIcon) {tooltip = warnMsg});
+                    if (hasWarning) GUI.Label(warnRect, new GUIContent(_yellowWarnIcon) {tooltip = warnMsg});
 
                     switch (valueType.enumValueIndex)
                     {
                         case 2:
                             EditorGUI.BeginChangeCheck();
-                            int dummy = EditorGUI.Popup(defaultRect, defaultValue.floatValue == 0 ? 0 : 1, new[] {"False", "True"});
+                            var dummy = EditorGUI.Popup(defaultRect, defaultValue.floatValue == 0 ? 0 : 1, new[] {"False", "True"});
                             if (EditorGUI.EndChangeCheck())
                                 defaultValue.floatValue = dummy;
                             break;
@@ -450,20 +448,18 @@ namespace DreadScripts.VRCSDKPlus
                     }
 
                     w_MakeRectLinkCursor(removeRect);
-                    if (GUI.Button(removeRect, VRCSDKPlusToolbox.GUIContent.Remove, VRCSDKPlusToolbox.Styles.Label.RemoveIcon))
+                    if (GUI.Button(removeRect, VrcsdkPlusToolbox.GUIContent.Remove, VrcsdkPlusToolbox.Styles.Label.RemoveIcon))
                         DeleteParameter(index);
                 }
 
                 var e = Event.current;
-                if (e.type == EventType.ContextClick && contextRect.Contains(e.mousePosition))
-                {
-                    e.Use();
-                    var menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("Duplicate"), false, () => DuplicateParameter(index));
-                    menu.AddSeparator(string.Empty);
-                    menu.AddItem(new GUIContent("Delete"), false, () => DeleteParameter(index));
-                    menu.ShowAsContext();
-                }
+                if (e.type != EventType.ContextClick || !contextRect.Contains(e.mousePosition)) return;
+                e.Use();
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("Duplicate"), false, () => DuplicateParameter(index));
+                menu.AddSeparator(string.Empty);
+                menu.AddItem(new GUIContent("Delete"), false, () => DeleteParameter(index));
+                menu.ShowAsContext();
             }
           
 
@@ -517,10 +513,10 @@ namespace DreadScripts.VRCSDKPlus
 
                 Rect UseNext(float width, bool fixedWidth = false, float position = -1, bool fixedPosition = false)
                 {
-                    Rect currentRect = rect;
+                    var currentRect = rect;
                     currentRect.width = fixedWidth ? width : width * rect.width / 100;
                     currentRect.height = rect.height;
-                    currentRect.x = position == -1 ? rect.x : fixedPosition ? position : rect.x + position * rect.width / 100;
+                    currentRect.x = Mathf.Approximately(position, -1) ? rect.x : fixedPosition ? position : rect.x + position * rect.width / 100;
                     currentRect.y = rect.y;
                     rect.x += currentRect.width;
                     return currentRect;
@@ -528,36 +524,36 @@ namespace DreadScripts.VRCSDKPlus
 
                 Rect UseEnd(ref Rect r, float width, bool fixedWidth = false, float positionOffset = -1, bool fixedPosition = false)
                 {
-                    Rect returnRect = r;
+                    var returnRect = r;
                     returnRect.width = fixedWidth ? width : width * r.width / 100;
-                    float positionAdjust = positionOffset == -1 ? 0 : fixedPosition ? positionOffset : positionOffset * r.width / 100;
+                    var positionAdjust = Mathf.Approximately(positionOffset, -1) ? 0 : fixedPosition ? positionOffset : positionOffset * r.width / 100;
                     returnRect.x = r.x + r.width - returnRect.width - positionAdjust;
                     r.width -= returnRect.width + positionAdjust;
                     return returnRect;
                 }
 
                 UseEnd(ref rect, 32, true, 4, true);
-                Rect syncedRect = hasSyncingOption ? UseEnd(ref rect, 54, true) : Rect.zero;
-                Rect savedRect = UseEnd(ref rect, 54, true);
-                Rect defaultRect = UseEnd(ref rect, 117, true);
-                Rect typeRect = UseEnd(ref rect, 75, true);
+                var syncedRect = HasSyncingOption ? UseEnd(ref rect, 54, true) : Rect.zero;
+                var savedRect = UseEnd(ref rect, 54, true);
+                var defaultRect = UseEnd(ref rect, 117, true);
+                var typeRect = UseEnd(ref rect, 75, true);
                 UseEnd(ref rect, 48, true);
-                Rect nameRect = UseNext(100);
+                var nameRect = UseNext(100);
 
                 //guitest = EditorGUILayout.FloatField(guitest);
 
-                Rect searchIconRect = nameRect;
+                var searchIconRect = nameRect;
                 searchIconRect.x += searchIconRect.width / 2 - 40;
                 searchIconRect.width = 18;
-                Rect searchRect = Rect.zero;
-                Rect searchClearRect = Rect.zero;
+                var searchRect = Rect.zero;
+                var searchClearRect = Rect.zero;
                 #endregion
                 
                 const string controlName = "VRCSDKParameterSearch";
-                if (VRCSDKPlusToolbox.HasReceivedCommand(VRCSDKPlusToolbox.EventCommands.Find)) GUI.FocusControl(controlName);
-                VRCSDKPlusToolbox.HandleTextFocusConfirmCommands(controlName, onCancel: () => searchValue = string.Empty);
-                bool isFocused = GUI.GetNameOfFocusedControl() == controlName;
-                bool isSearching = isFocused || !string.IsNullOrEmpty(searchValue);
+                if (VrcsdkPlusToolbox.HasReceivedCommand(VrcsdkPlusToolbox.EventCommands.Find)) GUI.FocusControl(controlName);
+                VrcsdkPlusToolbox.HandleTextFocusConfirmCommands(controlName, onCancel: () => _searchValue = string.Empty);
+                var isFocused = GUI.GetNameOfFocusedControl() == controlName;
+                var isSearching = isFocused || !string.IsNullOrEmpty(_searchValue);
                 if (isSearching)
                 {
                     searchRect = nameRect; searchRect.x += 14; searchRect.width -= 14;
@@ -565,38 +561,38 @@ namespace DreadScripts.VRCSDKPlus
                 }
 
                 w_MakeRectLinkCursor(searchIconRect);
-                if (GUI.Button(searchIconRect, VRCSDKPlusToolbox.GUIContent.Search, centeredLabel))
+                if (GUI.Button(searchIconRect, VrcsdkPlusToolbox.GUIContent.Search, CenteredLabel))
                     EditorGUI.FocusTextInControl(controlName);
                 
-                GUI.Label(nameRect, new GUIContent("Name","Name of the Parameter. This must match the name of the parameter that it is controlling in the playable layers. Case sensitive."), centeredLabel);
+                GUI.Label(nameRect, new GUIContent("Name","Name of the Parameter. This must match the name of the parameter that it is controlling in the playable layers. Case sensitive."), CenteredLabel);
 
 
                 w_MakeRectLinkCursor(searchClearRect);
                 if (GUI.Button(searchClearRect, string.Empty, GUIStyle.none))
                 {
-                    searchValue = string.Empty;
+                    _searchValue = string.Empty;
                     if (isFocused) GUI.FocusControl(string.Empty);
                 }
                 GUI.SetNextControlName(controlName);
-                searchValue = GUI.TextField(searchRect, searchValue, "SearchTextField");
-                GUI.Button(searchClearRect, VRCSDKPlusToolbox.GUIContent.Clear, centeredLabel);
-                GUI.Label(typeRect, new GUIContent("Type", "Type of the Parameter."), centeredLabel);
-                GUI.Label(defaultRect, new GUIContent("Default", "The default/start value of this parameter."), centeredLabel);
-                GUI.Label(savedRect, new GUIContent("Saved","Value will stay when loading avatar or changing worlds"), centeredLabel);
+                _searchValue = GUI.TextField(searchRect, _searchValue, "SearchTextField");
+                GUI.Button(searchClearRect, VrcsdkPlusToolbox.GUIContent.Clear, CenteredLabel);
+                GUI.Label(typeRect, new GUIContent("Type", "Type of the Parameter."), CenteredLabel);
+                GUI.Label(defaultRect, new GUIContent("Default", "The default/start value of this parameter."), CenteredLabel);
+                GUI.Label(savedRect, new GUIContent("Saved","Value will stay when loading avatar or changing worlds"), CenteredLabel);
                
-                if (hasSyncingOption) 
-                    GUI.Label(syncedRect, new GUIContent("Synced", "Value will be sent over the network to remote users. This is needed if this value should be the same locally and remotely. Synced parameters count towards the total memory usage."), centeredLabel);
+                if (HasSyncingOption) 
+                    GUI.Label(syncedRect, new GUIContent("Synced", "Value will be sent over the network to remote users. This is needed if this value should be the same locally and remotely. Synced parameters count towards the total memory usage."), CenteredLabel);
 
             }
 
             private void HandleParameterEvents()
             {
-                if (!parametersOrderList.HasKeyboardControl()) return;
-                if (!parametersOrderList.TryGetActiveIndex(out int index)) return;
-                if (VRCSDKPlusToolbox.HasReceivedCommand(VRCSDKPlusToolbox.EventCommands.Duplicate))
+                if (!_parametersOrderList.HasKeyboardControl()) return;
+                if (!_parametersOrderList.TryGetActiveIndex(out var index)) return;
+                if (VrcsdkPlusToolbox.HasReceivedCommand(VrcsdkPlusToolbox.EventCommands.Duplicate))
                     DuplicateParameter(index);
                 
-                if (VRCSDKPlusToolbox.HasReceivedAnyDelete())
+                if (VrcsdkPlusToolbox.HasReceivedAnyDelete())
                     DeleteParameter(index);
             }
 
@@ -605,7 +601,7 @@ namespace DreadScripts.VRCSDKPlus
             [MenuItem("CONTEXT/VRCExpressionParameters/[SDK+] Toggle Editor", false, 899)]
             private static void ToggleEditor()
             {
-                editorActive = !editorActive;
+                _editorActive = !_editorActive;
 
                 var targetType = ExtendedGetType("VRCExpressionParameters");
                 if (targetType == null)
@@ -613,7 +609,7 @@ namespace DreadScripts.VRCSDKPlus
                     Debug.LogError("[VRCSDK+] VRCExpressionParameters was not found! Could not apply custom editor.");
                     return;
                 }
-                if (editorActive) OverrideEditor(targetType, typeof(VRCParamsPlus));
+                if (_editorActive) OverrideEditor(targetType, typeof(VrcParamsPlus));
                 else
                 {
                     var expressionsEditor = ExtendedGetType("VRCExpressionParametersEditor");
@@ -638,77 +634,77 @@ namespace DreadScripts.VRCSDKPlus
                 var parameters = expressionParameters.parameters;
                 _parameterStatus = new ParameterStatus[parameters.Length];
 
-                for (int index = 0; index < parameters.Length; index++)
+                for (var index = 0; index < parameters.Length; index++)
                 {
                     var exParameter = expressionParameters.parameters[index];
-                    AnimatorControllerParameter matchedParameter = validParameters.FirstOrDefault(conParam => conParam.name == exParameter.name);
-                    bool parameterEmpty = string.IsNullOrEmpty(exParameter.name);
-                    bool parameterIsValid = matchedParameter != null;
-                    bool parameterAddable = avatar && !parameterIsValid && !parameterEmpty;
-                    bool parameterIsDuplicate = !parameterEmpty && expressionParameters.parameters.Where((p2, i) => index != i && exParameter.name == p2.name).Any(); ;
-                    bool hasWarning = (avatar && !parameterIsValid) || parameterEmpty || parameterIsDuplicate;
+                    var matchedParameter = _validParameters.FirstOrDefault(conParam => conParam.name == exParameter.name);
+                    var parameterEmpty = string.IsNullOrEmpty(exParameter.name);
+                    var parameterIsValid = matchedParameter != null;
+                    var parameterAddable = _avatar && !parameterIsValid && !parameterEmpty;
+                    var parameterIsDuplicate = !parameterEmpty && expressionParameters.parameters.Where((p2, i) => index != i && exParameter.name == p2.name).Any(); ;
+                    var hasWarning = (_avatar && !parameterIsValid) || parameterEmpty || parameterIsDuplicate;
                     _parameterStatus[index] = new ParameterStatus()
                     {
-                        parameterEmpty = parameterEmpty,
-                        parameterAddable = parameterAddable,
-                        parameterIsDuplicate = parameterIsDuplicate,
-                        hasWarning = hasWarning,
-                        matchedParameter = matchedParameter
+                        ParameterEmpty = parameterEmpty,
+                        ParameterAddable = parameterAddable,
+                        ParameterIsDuplicate = parameterIsDuplicate,
+                        HasWarning = hasWarning,
+                        MatchedParameter = matchedParameter
                     };
                 }
             }
 
             private void CalculateTotalCost()
             {
-                currentCost = 0;
-                for (int i = 0; i < parameterList.arraySize; i++)
+                _currentCost = 0;
+                for (var i = 0; i < _parameterList.arraySize; i++)
                 {
-                    SerializedProperty p = parameterList.GetArrayElementAtIndex(i);
-                    SerializedProperty synced = p.FindPropertyRelative("networkSynced");
+                    var p = _parameterList.GetArrayElementAtIndex(i);
+                    var synced = p.FindPropertyRelative("networkSynced");
                     if (synced != null && !synced.boolValue) continue;
-                    currentCost += p.FindPropertyRelative("valueType").enumValueIndex == 2 ? 1 : 8;
+                    _currentCost += p.FindPropertyRelative("valueType").enumValueIndex == 2 ? 1 : 8;
                 }
             }
 
             private void RefreshParametersOrderList()
             {
-                parametersOrderList = new ReorderableList(serializedObject, parameterList, true, true, true, false)
+                _parametersOrderList = new ReorderableList(serializedObject, _parameterList, true, true, true, false)
                 {
                     drawElementCallback = DrawElement,
                     drawHeaderCallback = DrawHeader
                 };
-                parametersOrderList.onReorderCallback += _ => RefreshAllParameterStatus();
-                parametersOrderList.onAddCallback = _ =>
+                _parametersOrderList.onReorderCallback += _ => RefreshAllParameterStatus();
+                _parametersOrderList.onAddCallback = _ =>
                 {
-                    parameterList.InsertArrayElementAtIndex(parameterList.arraySize);
-                    MakeParameterUnique(parameterList.arraySize - 1);
+                    _parameterList.InsertArrayElementAtIndex(_parameterList.arraySize);
+                    MakeParameterUnique(_parameterList.arraySize - 1);
                 };
             }
 
             private void DuplicateParameter(int index)
             {
-                parameterList.InsertArrayElementAtIndex(index);
+                _parameterList.InsertArrayElementAtIndex(index);
                 MakeParameterUnique(index+1);
-                parameterList.serializedObject.ApplyModifiedProperties();
+                _parameterList.serializedObject.ApplyModifiedProperties();
                 RefreshAllParameterStatus();
             }
 
             private void DeleteParameter(int index)
             {
-                parameterList.DeleteArrayElementAtIndex(index);
-                parameterList.serializedObject.ApplyModifiedProperties();
+                _parameterList.DeleteArrayElementAtIndex(index);
+                _parameterList.serializedObject.ApplyModifiedProperties();
                 RefreshAllParameterStatus();
             }
             private void MakeParameterUnique(int index)
             {
-                var newElement = parameterList.GetArrayElementAtIndex(index);
+                var newElement = _parameterList.GetArrayElementAtIndex(index);
                 var nameProp = newElement.FindPropertyRelative("name");
-                nameProp.stringValue = VRCSDKPlusToolbox.GenerateUniqueString(nameProp.stringValue, newName =>
+                nameProp.stringValue = VrcsdkPlusToolbox.GenerateUniqueString(nameProp.stringValue, newName =>
                 {
-                    for (int i = 0; i < parameterList.arraySize; i++)
+                    for (var i = 0; i < _parameterList.arraySize; i++)
                     {
                         if (i == index) continue;
-                        var p = parameterList.GetArrayElementAtIndex(i);
+                        var p = _parameterList.GetArrayElementAtIndex(i);
                         if (p.FindPropertyRelative("name").stringValue == newName) return false;
                     }
                     return true;
@@ -719,29 +715,29 @@ namespace DreadScripts.VRCSDKPlus
 
             private struct ParameterStatus
             {
-                internal bool parameterEmpty;
-                internal bool parameterAddable;
-                internal bool parameterIsDuplicate;
-                internal bool hasWarning;
-                internal AnimatorControllerParameter matchedParameter;
+                internal bool ParameterEmpty;
+                internal bool ParameterAddable;
+                internal bool ParameterIsDuplicate;
+                internal bool HasWarning;
+                internal AnimatorControllerParameter MatchedParameter;
             }
 
         }
 
-        internal sealed class VRCMenuPlus : Editor, IHasCustomMenu
+        internal sealed class VrcMenuPlus : UnityEditor.Editor, IHasCustomMenu
         {
-            private static bool editorActive = true;
+            private static bool _editorActive = true;
             private static VRCAvatarDescriptor _avatar;
             private VRCAvatarDescriptor[] _validAvatars;
             private ReorderableList _controlsList;
 
-            private static readonly LinkedList<VRCExpressionsMenu> _menuHistory = new LinkedList<VRCExpressionsMenu>();
+            private static readonly LinkedList<VRCExpressionsMenu> MenuHistory = new();
             private static LinkedListNode<VRCExpressionsMenu> _currentNode;
             private static VRCExpressionsMenu _lastMenu;
 
-            private static VRCExpressionsMenu moveSourceMenu;
-            private static VRCExpressionsMenu.Control moveTargetControl;
-            private static bool isMoving;
+            private static VRCExpressionsMenu _moveSourceMenu;
+            private static VRCExpressionsMenu.Control _moveTargetControl;
+            private static bool _isMoving;
 
             #region Initialization
             private void ReInitializeAll()
@@ -763,19 +759,19 @@ namespace DreadScripts.VRCSDKPlus
                 var currentMenu = target as VRCExpressionsMenu;
                 if (!currentMenu || currentMenu == _lastMenu) return;
 
-                if (_currentNode != null && _menuHistory.Last != _currentNode)
+                if (_currentNode != null && MenuHistory.Last != _currentNode)
                 {
                     var node = _currentNode.Next;
                     while (node != null)
                     {
                         var nextNode = node.Next;
-                        _menuHistory.Remove(node);
+                        MenuHistory.Remove(node);
                         node = nextNode;
                     }
                 }
 
                 _lastMenu = currentMenu;
-                _currentNode = _menuHistory.AddLast(currentMenu);
+                _currentNode = MenuHistory.AddLast(currentMenu);
             }
 
             private void InitializeList()
@@ -801,9 +797,9 @@ namespace DreadScripts.VRCSDKPlus
                 };
                 _controlsList.drawHeaderCallback = rect =>
                 {
-                    if (isMoving && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
+                    if (_isMoving && Event.current.type == EventType.KeyDown && Event.current.keyCode == KeyCode.Escape)
                     {
-                        isMoving = false;
+                        _isMoving = false;
                         Repaint();
                     }
                     EditorGUI.LabelField(rect, $"Controls ({_controlsList.count} / 8)");
@@ -811,42 +807,42 @@ namespace DreadScripts.VRCSDKPlus
                     // Draw copy, paste, duplicate, and move buttons
                     #region Rects
                     var copyRect = new Rect(
-                        rect.x + rect.width - rect.height - ((rect.height + VRCSDKPlusToolbox.Styles.Padding) * 3),
+                        rect.x + rect.width - rect.height - ((rect.height + VrcsdkPlusToolbox.Styles.Padding) * 3),
                         rect.y,
                         rect.height,
                         rect.height);
 
                     var pasteRect = new Rect(
-                        copyRect.x + copyRect.width + VRCSDKPlusToolbox.Styles.Padding,
+                        copyRect.x + copyRect.width + VrcsdkPlusToolbox.Styles.Padding,
                         copyRect.y,
                         copyRect.height,
                         copyRect.height);
 
                     var duplicateRect = new Rect(
-                        pasteRect.x + pasteRect.width + VRCSDKPlusToolbox.Styles.Padding,
+                        pasteRect.x + pasteRect.width + VrcsdkPlusToolbox.Styles.Padding,
                         pasteRect.y,
                         pasteRect.height,
                         pasteRect.height);
 
                     var moveRect = new Rect(
-                        duplicateRect.x + duplicateRect.width + VRCSDKPlusToolbox.Styles.Padding,
+                        duplicateRect.x + duplicateRect.width + VrcsdkPlusToolbox.Styles.Padding,
                         duplicateRect.y,
                         duplicateRect.height,
                         duplicateRect.height);
                     
                     #endregion
 
-                    bool isFull = _controlsList.count >= 8;
-                    bool isEmpty = _controlsList.count == 0;
-                    bool hasIndex = _controlsList.TryGetActiveIndex(out int index);
-                    bool hasFocus = _controlsList.HasKeyboardControl();
+                    var isFull = _controlsList.count >= 8;
+                    var isEmpty = _controlsList.count == 0;
+                    var hasIndex = _controlsList.TryGetActiveIndex(out var index);
+                    var hasFocus = _controlsList.HasKeyboardControl();
                     if (!hasIndex) index = _controlsList.count;
                     using (new EditorGUI.DisabledScope(isEmpty || !hasFocus || !hasIndex))
                     {
                         #region Copy
 
                         w_MakeRectLinkCursor(copyRect);
-                        if (GUI.Button(copyRect, VRCSDKPlusToolbox.GUIContent.Copy, GUI.skin.label))
+                        if (GUI.Button(copyRect, VrcsdkPlusToolbox.GUIContent.Copy, GUI.skin.label))
                             CopyControl(index);
                                 
 
@@ -859,7 +855,7 @@ namespace DreadScripts.VRCSDKPlus
                         using (new EditorGUI.DisabledScope(isFull))
                         {
                             w_MakeRectLinkCursor(duplicateRect);
-                            if (GUI.Button(duplicateRect, isFull ? new GUIContent(VRCSDKPlusToolbox.GUIContent.Duplicate) { tooltip = VRCSDKPlusToolbox.GUIContent.MenuFullTooltip } : VRCSDKPlusToolbox.GUIContent.Duplicate, GUI.skin.label))
+                            if (GUI.Button(duplicateRect, isFull ? new GUIContent(VrcsdkPlusToolbox.GUIContent.Duplicate) { tooltip = VrcsdkPlusToolbox.GUIContent.MenuFullTooltip } : VrcsdkPlusToolbox.GUIContent.Duplicate, GUI.skin.label))
                                 DuplicateControl(index);
                         }
 
@@ -870,14 +866,14 @@ namespace DreadScripts.VRCSDKPlus
                     using (new EditorGUI.DisabledScope(!CanPasteControl()))
                     {
                         w_MakeRectLinkCursor(pasteRect);
-                        if (GUI.Button(pasteRect, VRCSDKPlusToolbox.GUIContent.Paste, GUI.skin.label))
+                        if (GUI.Button(pasteRect, VrcsdkPlusToolbox.GUIContent.Paste, GUI.skin.label))
                         {
                             var menu = new GenericMenu();
-                            menu.AddItem(new GUIContent("Paste values"), false, isEmpty || !hasFocus ? (GenericMenu.MenuFunction)null : () => PasteControl(index, false));
+                            menu.AddItem(new GUIContent("Paste values"), false, isEmpty || !hasFocus ? null : () => PasteControl(index, false));
                             menu.AddItem(
                                 new GUIContent("Insert as new"),
                                 false,
-                                isFull ? (GenericMenu.MenuFunction)null : () => PasteControl(index, true)
+                                isFull ? null : () => PasteControl(index, true)
                             );
                             menu.ShowAsContext();
                         }
@@ -886,14 +882,18 @@ namespace DreadScripts.VRCSDKPlus
 
 
                     #region Move
-                    using (new EditorGUI.DisabledScope((isMoving && isFull) || (!isMoving && (!hasFocus || isEmpty))))
+                    using (new EditorGUI.DisabledScope((_isMoving && isFull) || (!_isMoving && (!hasFocus || isEmpty))))
                     {
                         w_MakeRectLinkCursor(moveRect);
-                        if (GUI.Button(moveRect, isMoving ? isFull ? new GUIContent(VRCSDKPlusToolbox.GUIContent.Place) {tooltip = VRCSDKPlusToolbox.GUIContent.MenuFullTooltip} : VRCSDKPlusToolbox.GUIContent.Place : VRCSDKPlusToolbox.GUIContent.Move, GUI.skin.label))
-                        {
-                            if (!isMoving) MoveControl(index);
-                            else PlaceControl(index);
-                        }
+                        if (!GUI.Button(moveRect,
+                                _isMoving
+                                    ? isFull
+                                        ? new GUIContent(VrcsdkPlusToolbox.GUIContent.Place)
+                                            { tooltip = VrcsdkPlusToolbox.GUIContent.MenuFullTooltip }
+                                        : VrcsdkPlusToolbox.GUIContent.Place
+                                    : VrcsdkPlusToolbox.GUIContent.Move, GUI.skin.label)) return;
+                        if (!_isMoving) MoveControl(index);
+                        else PlaceControl(index);
                     }
 
                     #endregion
@@ -905,26 +905,26 @@ namespace DreadScripts.VRCSDKPlus
                     if (!(index < l.arraySize && index >= 0)) return;
                     var controlProp = l.GetArrayElementAtIndex(index);
                     var controlType = controlProp.FindPropertyRelative("type").ToControlType();
-                    Rect removeRect = new Rect(rect2.width + 3, rect2.y + 1, 32, 18);
+                    var removeRect = new Rect(rect2.width + 3, rect2.y + 1, 32, 18);
                     rect2.width -= 48;
                     // Draw control type
                     EditorGUI.LabelField(rect2, controlType.ToString(), focused
-                            ? VRCSDKPlusToolbox.Styles.Label.TypeFocused
-                            : VRCSDKPlusToolbox.Styles.Label.Type);
+                            ? VrcsdkPlusToolbox.Styles.Label.TypeFocused
+                            : VrcsdkPlusToolbox.Styles.Label.Type);
 
                     // Draw control name
                     var nameGuiContent = new GUIContent(controlProp.FindPropertyRelative("name").stringValue);
-                    bool emptyName = string.IsNullOrEmpty(nameGuiContent.text);
+                    var emptyName = string.IsNullOrEmpty(nameGuiContent.text);
                     if (emptyName) nameGuiContent.text = "[Unnamed]";
 
-                    var nameRect = new Rect(rect2.x, rect2.y, VRCSDKPlusToolbox.Styles.Label.RichText.CalcSize(nameGuiContent).x, rect2.height);
+                    var nameRect = new Rect(rect2.x, rect2.y, VrcsdkPlusToolbox.Styles.Label.RichText.CalcSize(nameGuiContent).x, rect2.height);
 
                     EditorGUI.LabelField(nameRect,
                         new GUIContent(nameGuiContent),
-                        emptyName ? VRCSDKPlusToolbox.Styles.Label.PlaceHolder : VRCSDKPlusToolbox.Styles.Label.RichText);
+                        emptyName ? VrcsdkPlusToolbox.Styles.Label.PlaceHolder : VrcsdkPlusToolbox.Styles.Label.RichText);
 
                     w_MakeRectLinkCursor(removeRect);
-                    if (GUI.Button(removeRect, VRCSDKPlusToolbox.GUIContent.Remove, VRCSDKPlusToolbox.Styles.Label.RemoveIcon))
+                    if (GUI.Button(removeRect, VrcsdkPlusToolbox.GUIContent.Remove, VrcsdkPlusToolbox.Styles.Label.RemoveIcon))
                         DeleteControl(index);
 
                     var e = Event.current;
@@ -939,24 +939,22 @@ namespace DreadScripts.VRCSDKPlus
                         }
                     }
 
-                    if (e.type == EventType.ContextClick && rect2.Contains(e.mousePosition))
+                    if (e.type != EventType.ContextClick || !rect2.Contains(e.mousePosition)) return;
+                    e.Use();
+                    var menu = new GenericMenu();
+                    menu.AddItem(new GUIContent("Cut"), false, () => MoveControl(index));
+                    menu.AddItem(new GUIContent("Copy"), false, () => CopyControl(index));
+                    if (!CanPasteControl()) menu.AddDisabledItem(new GUIContent("Paste"));
+                    else
                     {
-                        e.Use();
-                        var menu = new GenericMenu();
-                        menu.AddItem(new GUIContent("Cut"), false, () => MoveControl(index));
-                        menu.AddItem(new GUIContent("Copy"), false, () => CopyControl(index));
-                        if (!CanPasteControl()) menu.AddDisabledItem(new GUIContent("Paste"));
-                        else
-                        {
-                            menu.AddItem(new GUIContent("Paste/Values"), false, () =>  PasteControl(index, false));
-                            menu.AddItem(new GUIContent("Paste/As New"), false, () =>  PasteControl(index, true));
-                        }
-                        menu.AddSeparator(string.Empty);
-                        menu.AddItem(new GUIContent("Duplicate"), false, () => DuplicateControl(index));
-                        menu.AddItem(new GUIContent("Delete"), false, () => DeleteControl(index));
-                        menu.ShowAsContext();
+                        menu.AddItem(new GUIContent("Paste/Values"), false, () =>  PasteControl(index, false));
+                        menu.AddItem(new GUIContent("Paste/As New"), false, () =>  PasteControl(index, true));
                     }
-                    
+                    menu.AddSeparator(string.Empty);
+                    menu.AddItem(new GUIContent("Duplicate"), false, () => DuplicateControl(index));
+                    menu.AddItem(new GUIContent("Delete"), false, () => DeleteControl(index));
+                    menu.ShowAsContext();
+
                 };
             }
 
@@ -982,16 +980,16 @@ namespace DreadScripts.VRCSDKPlus
 
             private void OnEnable() => ReInitializeAll();
 
-            private void DrawHistory()
+            private static void DrawHistory()
             {
                 using (new GUILayout.HorizontalScope("helpbox"))
                 {
                     void CheckHistory()
                     {
-                        for (LinkedListNode<VRCExpressionsMenu> node = _menuHistory.First; node != null;)
+                        for (var node = MenuHistory.First; node != null;)
                         {
-                            LinkedListNode<VRCExpressionsMenu> next = node.Next;
-                            if (node.Value == null) _menuHistory.Remove(node);
+                            var next = node.Next;
+                            if (node.Value == null) MenuHistory.Remove(node);
                             node = next;
                         }
                     }
@@ -1010,7 +1008,7 @@ namespace DreadScripts.VRCSDKPlus
                             if (ClickableButton("<<", GUILayout.ExpandWidth(false)))
                             {
                                 CheckHistory();
-                                SetCurrentNode(_menuHistory.First);
+                                SetCurrentNode(MenuHistory.First);
                             }
 
                             if (ClickableButton("<", GUILayout.ExpandWidth(false)))
@@ -1021,7 +1019,7 @@ namespace DreadScripts.VRCSDKPlus
                         }
                     }
 
-                    if (ClickableButton(_lastMenu.name, VRCSDKPlusToolbox.Styles.Label.Centered, GUILayout.ExpandWidth(true)))
+                    if (ClickableButton(_lastMenu.name, VrcsdkPlusToolbox.Styles.Label.Centered, GUILayout.ExpandWidth(true)))
                         EditorGUIUtility.PingObject(_lastMenu);
 
                     using (new EditorGUI.DisabledScope(_currentNode.Next == null))
@@ -1032,11 +1030,9 @@ namespace DreadScripts.VRCSDKPlus
                             SetCurrentNode(_currentNode.Next);
                         }
 
-                        if (ClickableButton(">>", GUILayout.ExpandWidth(false)))
-                        {
-                            CheckHistory();
-                            SetCurrentNode(_menuHistory.Last);
-                        }
+                        if (!ClickableButton(">>", GUILayout.ExpandWidth(false))) return;
+                        CheckHistory();
+                        SetCurrentNode(MenuHistory.Last);
                     }
 
                 }
@@ -1051,43 +1047,42 @@ namespace DreadScripts.VRCSDKPlus
                 // Draw selection
                 using (new EditorGUI.DisabledScope(_validAvatars.Length <= 1))
                 {
-                    using (new VRCSDKPlusToolbox.Container.Horizontal())
+                    using (new VrcsdkPlusToolbox.Container.Horizontal())
                     {
                         var content = new GUIContent("Active Avatar", "The auto-fill and warnings will be based on this avatar's expression parameters");
                         if (_validAvatars.Length >= 1)
                         {
-                            using (var change = new EditorGUI.ChangeCheckScope())
-                            {
-                                var targetIndex = EditorGUILayout.Popup(
-                                    content,
-                                    _validAvatars.FindIndex(_avatar),
-                                    targetsAsString);
+                            using var change = new EditorGUI.ChangeCheckScope();
+                            var targetIndex = EditorGUILayout.Popup(
+                                content,
+                                _validAvatars.FindIndex(_avatar),
+                                targetsAsString);
 
-                                if (targetIndex == -1)
-                                    ReInitializeAll();
-                                else if (change.changed)
-                                {
-                                    _avatar = _validAvatars[targetIndex];
-                                    ReInitializeAll();
-                                }
+                            if (targetIndex == -1)
+                                ReInitializeAll();
+                            else if (change.changed)
+                            {
+                                _avatar = _validAvatars[targetIndex];
+                                ReInitializeAll();
                             }
                         }
-                        else EditorGUILayout.LabelField(content, new GUIContent("No Avatar Descriptors found"), VRCSDKPlusToolbox.Styles.Label.LabelDropdown);
+                        else EditorGUILayout.LabelField(content, new GUIContent("No Avatar Descriptors found"), VrcsdkPlusToolbox.Styles.Label.LabelDropdown);
 
                         if (_avatar == null || !_avatar.expressionParameters)
-                            GUILayout.Label(new GUIContent(VRCSDKPlusToolbox.GUIContent.Error) { tooltip = VRCSDKPlusToolbox.GUIContent.MissingParametersTooltip }, GUILayout.Width(18));
+                            GUILayout.Label(new GUIContent(VrcsdkPlusToolbox.GUIContent.Error) { tooltip = VrcsdkPlusToolbox.GUIContent.MissingParametersTooltip }, GUILayout.Width(18));
                     }
                 }
 
                 #endregion
             }
-            void DrawBody()
+
+            private void DrawBody()
             {
 
                 if (_controlsList == null)
                     InitializeList();
 
-                if (_controlsList.index == -1 && _controlsList.count != 0)
+                if (_controlsList!.index == -1 && _controlsList.count != 0)
                     _controlsList.index = 0;
                 
                 _controlsList.DoLayoutList();
@@ -1099,84 +1094,87 @@ namespace DreadScripts.VRCSDKPlus
                 var control = _controlsList.index < 0 || _controlsList.index >= _controlsList.count ? null : _controlsList.serializedProperty.GetArrayElementAtIndex(_controlsList.index);
                 var expressionParameters = _avatar == null ? null : _avatar.expressionParameters;
 
-                if (VRCSDKPlusToolbox.Preferences.CompactMode)
+                if (VrcsdkPlusToolbox.Preferences.CompactMode)
                     ControlRenderer.DrawControlCompact(control, expressionParameters);
                 else
                     ControlRenderer.DrawControl(control, expressionParameters);
 
             }
 
-            void DrawFooter()
+            private static void DrawFooter()
             {
                 using (new GUILayout.HorizontalScope())
                 {
                     GUILayout.FlexibleSpace();
-                    GUILayout.Label("Editor by", VRCSDKPlusToolbox.Styles.Label.Watermark);
+                    GUILayout.Label("Editor by", VrcsdkPlusToolbox.Styles.Label.Watermark);
                     Link("@fox_score","https://github.com/foxscore");
-                    GUILayout.Label("&", VRCSDKPlusToolbox.Styles.Label.Watermark);
+                    GUILayout.Label("&", VrcsdkPlusToolbox.Styles.Label.Watermark);
                     Link("@Dreadrith", "https://dreadrith.com/links");
+                }
+                using (new GUILayout.HorizontalScope())
+                {
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label("&", VrcsdkPlusToolbox.Styles.Label.Watermark);
+                    Link("@RunaXR", "https://c0dera.in");
                 }
             }
 
             private void HandleControlEvents()
             {
                 if (!_controlsList.HasKeyboardControl()) return;
-                if (!_controlsList.TryGetActiveIndex(out int index)) return;
-                bool fullMenu = _controlsList.count >= 8;
+                if (!_controlsList.TryGetActiveIndex(out var index)) return;
+                var fullMenu = _controlsList.count >= 8;
+
+                if (VrcsdkPlusToolbox.HasReceivedAnyDelete())
+                    DeleteControl(index);
+                
+                if (VrcsdkPlusToolbox.HasReceivedCommand(VrcsdkPlusToolbox.EventCommands.Duplicate))
+                    if (!WarnIfFull()) DuplicateControl(index);
+                
+                if (VrcsdkPlusToolbox.HasReceivedCommand(VrcsdkPlusToolbox.EventCommands.Copy))
+                    CopyControl(index);
+                
+                if (VrcsdkPlusToolbox.HasReceivedCommand(VrcsdkPlusToolbox.EventCommands.Cut))
+                    MoveControl(index);
+
+                if (!VrcsdkPlusToolbox.HasReceivedCommand(VrcsdkPlusToolbox.EventCommands.Paste)) return;
+                if (_isMoving && !WarnIfFull()) PlaceControl(index);
+                else if (CanPasteControl() && !WarnIfFull()) PasteControl(index, true);
+                return;
 
                 bool WarnIfFull()
                 {
-                    if (fullMenu)
-                    {
-                        Debug.LogWarning(VRCSDKPlusToolbox.GUIContent.MenuFullTooltip);
-                        return true;
-                    }
+                    if (!fullMenu) return false;
+                    Debug.LogWarning(VrcsdkPlusToolbox.GUIContent.MenuFullTooltip);
+                    return true;
 
-                    return false;
                 }
-                
-                if (VRCSDKPlusToolbox.HasReceivedAnyDelete())
-                    DeleteControl(index);
-                
-                if (VRCSDKPlusToolbox.HasReceivedCommand(VRCSDKPlusToolbox.EventCommands.Duplicate))
-                    if (!WarnIfFull()) DuplicateControl(index);
-                
-                if (VRCSDKPlusToolbox.HasReceivedCommand(VRCSDKPlusToolbox.EventCommands.Copy))
-                    CopyControl(index);
-                
-                if (VRCSDKPlusToolbox.HasReceivedCommand(VRCSDKPlusToolbox.EventCommands.Cut))
-                    MoveControl(index);
-                
-                if (VRCSDKPlusToolbox.HasReceivedCommand(VRCSDKPlusToolbox.EventCommands.Paste))
-                    if (isMoving && !WarnIfFull()) PlaceControl(index);
-                    else if (CanPasteControl() && !WarnIfFull()) PasteControl(index, true);
             }
             
             #region Control Methods
             private void CopyControl(int index)
             {
                 EditorGUIUtility.systemCopyBuffer =
-                    VRCSDKPlusToolbox.Strings.ClipboardPrefixControl +
+                    VrcsdkPlusToolbox.Strings.ClipboardPrefixControl +
                     JsonUtility.ToJson(((VRCExpressionsMenu)target).controls[index]);
             }
             
-            private static bool CanPasteControl() => EditorGUIUtility.systemCopyBuffer.StartsWith(VRCSDKPlusToolbox.Strings.ClipboardPrefixControl);
+            private static bool CanPasteControl() => EditorGUIUtility.systemCopyBuffer.StartsWith(VrcsdkPlusToolbox.Strings.ClipboardPrefixControl);
             private void PasteControl(int index, bool asNew)
             {
                 if (!CanPasteControl()) return;
                 if (!asNew)
                 {
                     var control = JsonUtility.FromJson<VRCExpressionsMenu.Control>(
-                        EditorGUIUtility.systemCopyBuffer.Substring(VRCSDKPlusToolbox.Strings.ClipboardPrefixControl.Length));
+                        EditorGUIUtility.systemCopyBuffer.Substring(VrcsdkPlusToolbox.Strings.ClipboardPrefixControl.Length));
 
                     Undo.RecordObject(target, "Paste control values");
                     _lastMenu.controls[index] = control;
-                    EditorUtility.SetDirty(_lastMenu);
                 }
                 else
                 {
                     var newControl = JsonUtility.FromJson<VRCExpressionsMenu.Control>(
-                        EditorGUIUtility.systemCopyBuffer.Substring(VRCSDKPlusToolbox.Strings.ClipboardPrefixControl.Length));
+                        EditorGUIUtility.systemCopyBuffer.Substring(VrcsdkPlusToolbox.Strings.ClipboardPrefixControl.Length));
 
                     Undo.RecordObject(target, "Insert control as new");
                     if (_lastMenu.controls.Count <= 0)
@@ -1191,8 +1189,9 @@ namespace DreadScripts.VRCSDKPlus
                         _lastMenu.controls.Insert(insertIndex, newControl);
                         _controlsList.index = insertIndex;
                     }
-                    EditorUtility.SetDirty(_lastMenu);
                 }
+
+                EditorUtility.SetDirty(_lastMenu);
             }
 
             private void DuplicateControl(int index)
@@ -1203,7 +1202,7 @@ namespace DreadScripts.VRCSDKPlus
 
                 var newElement = controlsProp.GetArrayElementAtIndex(index+1);
                 var lastName = newElement.FindPropertyRelative("name").stringValue;
-                newElement.FindPropertyRelative("name").stringValue = VRCSDKPlusToolbox.GenerateUniqueString(lastName, newName => newName != lastName, false);
+                newElement.FindPropertyRelative("name").stringValue = VrcsdkPlusToolbox.GenerateUniqueString(lastName, newName => newName != lastName, false);
 
                 if (Event.current.shift) return;
                 var menuParameter = newElement.FindPropertyRelative("parameter");
@@ -1217,12 +1216,12 @@ namespace DreadScripts.VRCSDKPlus
 
                 if (matchedParameter.valueType == VRCExpressionParameters.ValueType.Bool)
                 {
-                    menuParameter.FindPropertyRelative("name").stringValue = VRCSDKPlusToolbox.GenerateUniqueString(parName, s => s != parName, false);
+                    menuParameter.FindPropertyRelative("name").stringValue = VrcsdkPlusToolbox.GenerateUniqueString(parName, s => s != parName, false);
                 }
                 else
                 {
                     var controlValueProp = newElement.FindPropertyRelative("value");
-                    if (Mathf.RoundToInt(controlValueProp.floatValue) == controlValueProp.floatValue)
+                    if (Mathf.Approximately(Mathf.RoundToInt(controlValueProp.floatValue), controlValueProp.floatValue))
                         controlValueProp.floatValue++;
                 }
             }
@@ -1233,54 +1232,52 @@ namespace DreadScripts.VRCSDKPlus
                 _controlsList.serializedProperty.DeleteArrayElementAtIndex(index);
             }
 
-            private void MoveControl(int index)
+            private static void MoveControl(int index)
             {
-                isMoving = true;
-                moveSourceMenu = _lastMenu;
-                moveTargetControl = _lastMenu.controls[index];
+                _isMoving = true;
+                _moveSourceMenu = _lastMenu;
+                _moveTargetControl = _lastMenu.controls[index];
             }
 
             private void PlaceControl(int index)
             {
-                isMoving = false;
-                if (moveSourceMenu && moveTargetControl != null)
+                _isMoving = false;
+                if (!_moveSourceMenu || _moveTargetControl == null) return;
+                Undo.RecordObject(target, "Move control");
+                Undo.RecordObject(_moveSourceMenu, "Move control");
+
+                if (_lastMenu.controls.Count <= 0)
+                    _lastMenu.controls.Add(_moveTargetControl);
+                else 
                 {
-                    Undo.RecordObject(target, "Move control");
-                    Undo.RecordObject(moveSourceMenu, "Move control");
-
-                    if (_lastMenu.controls.Count <= 0)
-                        _lastMenu.controls.Add(moveTargetControl);
-                    else 
-                    {
-                        var insertIndex = index + 1;
-                        if (insertIndex < 0) insertIndex = 0;
-                        _lastMenu.controls.Insert(insertIndex, moveTargetControl);
-                        moveSourceMenu.controls.Remove(moveTargetControl);
-                    }
-
-                    EditorUtility.SetDirty(moveSourceMenu);
-                    EditorUtility.SetDirty(target);
-
-                    if (Event.current.shift) Selection.activeObject = moveSourceMenu;
+                    var insertIndex = index + 1;
+                    if (insertIndex < 0) insertIndex = 0;
+                    _lastMenu.controls.Insert(insertIndex, _moveTargetControl);
+                    _moveSourceMenu.controls.Remove(_moveTargetControl);
                 }
+
+                EditorUtility.SetDirty(_moveSourceMenu);
+                EditorUtility.SetDirty(target);
+
+                if (Event.current.shift) Selection.activeObject = _moveSourceMenu;
             }
 
             #endregion
 
-            public void AddItemsToMenu(GenericMenu menu) => menu.AddItem(new GUIContent("Compact Mode"), VRCSDKPlusToolbox.Preferences.CompactMode, ToggleCompactMode);
-            private static void ToggleCompactMode() => VRCSDKPlusToolbox.Preferences.CompactMode = !VRCSDKPlusToolbox.Preferences.CompactMode;
+            public void AddItemsToMenu(GenericMenu menu) => menu.AddItem(new GUIContent("Compact Mode"), VrcsdkPlusToolbox.Preferences.CompactMode, ToggleCompactMode);
+            private static void ToggleCompactMode() => VrcsdkPlusToolbox.Preferences.CompactMode = !VrcsdkPlusToolbox.Preferences.CompactMode;
 
             [MenuItem("CONTEXT/VRCExpressionsMenu/[SDK+] Toggle Editor", false, 899)]
             private static void ToggleEditor()
             {
-                editorActive = !editorActive;
+                _editorActive = !_editorActive;
                 var targetType = ExtendedGetType("VRCExpressionsMenu");
                 if (targetType == null)
                 {
                     Debug.LogError("[VRCSDK+] VRCExpressionsMenu was not found! Could not apply custom editor.");
                     return;
                 }
-                if (editorActive) OverrideEditor(targetType, typeof(VRCMenuPlus));
+                if (_editorActive) OverrideEditor(targetType, typeof(VrcMenuPlus));
                 else
                 {
                     var menuEditor = ExtendedGetType("VRCExpressionsMenuEditor");
@@ -1308,29 +1305,33 @@ namespace DreadScripts.VRCSDKPlus
                     EditorGUILayout.Separator();
                     ParameterContainer(property, parameters);
 
-                    if (property != null)
-                    {
-                        EditorGUILayout.Separator();
+                    if (property == null) return;
+                    EditorGUILayout.Separator();
 
-                        switch ((VRCExpressionsMenu.Control.ControlType)property.FindPropertyRelative("type").intValue)
-                        {
-                            case VRCExpressionsMenu.Control.ControlType.RadialPuppet:
-                                RadialContainer(property, parameters);
-                                break;
-                            case VRCExpressionsMenu.Control.ControlType.SubMenu:
-                                SubMenuContainer(property);
-                                break;
-                            case VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet:
-                                TwoAxisParametersContainer(property, parameters);
-                                EditorGUILayout.Separator();
-                                AxisCustomisationContainer(property);
-                                break;
-                            case VRCExpressionsMenu.Control.ControlType.FourAxisPuppet:
-                                FourAxisParametersContainer(property, parameters);
-                                EditorGUILayout.Separator();
-                                AxisCustomisationContainer(property);
-                                break;
-                        }
+                    switch ((VRCExpressionsMenu.Control.ControlType)property.FindPropertyRelative("type").intValue)
+                    {
+                        case VRCExpressionsMenu.Control.ControlType.RadialPuppet:
+                            RadialContainer(property, parameters);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.SubMenu:
+                            SubMenuContainer(property);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet:
+                            TwoAxisParametersContainer(property, parameters);
+                            EditorGUILayout.Separator();
+                            AxisCustomisationContainer(property);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.FourAxisPuppet:
+                            FourAxisParametersContainer(property, parameters);
+                            EditorGUILayout.Separator();
+                            AxisCustomisationContainer(property);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.Button:
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.Toggle:
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
                     }
                 }
 
@@ -1338,35 +1339,39 @@ namespace DreadScripts.VRCSDKPlus
                 {
                     CompactMainContainer(property, parameters);
 
-                    if (property != null)
+                    if (property == null) return;
+                    switch ((VRCExpressionsMenu.Control.ControlType)property.FindPropertyRelative("type").intValue)
                     {
-                        switch ((VRCExpressionsMenu.Control.ControlType)property.FindPropertyRelative("type").intValue)
-                        {
-                            case VRCExpressionsMenu.Control.ControlType.RadialPuppet:
-                                RadialContainer(property, parameters);
-                                break;
-                            case VRCExpressionsMenu.Control.ControlType.SubMenu:
-                                SubMenuContainer(property);
-                                break;
-                            case VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet:
-                                CompactTwoAxisParametersContainer(property, parameters);
-                                //AxisCustomisationContainer(property);
-                                break;
-                            case VRCExpressionsMenu.Control.ControlType.FourAxisPuppet:
-                                CompactFourAxisParametersContainer(property, parameters);
-                                //AxisCustomisationContainer(property);
-                                break;
-                        }
+                        case VRCExpressionsMenu.Control.ControlType.RadialPuppet:
+                            RadialContainer(property, parameters);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.SubMenu:
+                            SubMenuContainer(property);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet:
+                            CompactTwoAxisParametersContainer(property, parameters);
+                            //AxisCustomisationContainer(property);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.FourAxisPuppet:
+                            CompactFourAxisParametersContainer(property, parameters);
+                            //AxisCustomisationContainer(property);
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.Button:
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.Toggle:
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
                     }
                 }
 
                 #region Main container
 
-                static void MainContainer(SerializedProperty property)
+                private static void MainContainer(SerializedProperty property)
                 {
                     var rect = EditorGUILayout
                         .GetControlRect(false, 147);
-                    VRCSDKPlusToolbox.Container.GUIBox(ref rect);
+                    VrcsdkPlusToolbox.Container.GUIBox(ref rect);
 
                     var nameRect = new Rect(rect.x, rect.y, rect.width - IconSpace, 21);
                     var typeRect = new Rect(rect.x, rect.y + 24, rect.width - IconSpace, 21);
@@ -1381,10 +1386,10 @@ namespace DreadScripts.VRCSDKPlus
                     DrawHelp(helpRect, property);
                 }
 
-                static void CompactMainContainer(SerializedProperty property, VRCExpressionParameters parameters)
+                private static void CompactMainContainer(SerializedProperty property, VRCExpressionParameters parameters)
                 {
                     var rect = EditorGUILayout.GetControlRect(false, 66);
-                    VRCSDKPlusToolbox.Container.GUIBox(ref rect);
+                    VrcsdkPlusToolbox.Container.GUIBox(ref rect);
 
                     var halfWidth = (rect.width - CompactIconSpace) / 2;
                     var nameRect = new Rect(rect.x, rect.y, halfWidth - 3, 18);
@@ -1399,7 +1404,7 @@ namespace DreadScripts.VRCSDKPlus
                     DrawStyle(styleRect, property, false);
 
                     if (property != null)
-                        GUI.Label(helpRect, new GUIContent(VRCSDKPlusToolbox.GUIContent.Help) { tooltip = GetHelpMessage(property) }, GUIStyle.none);
+                        GUI.Label(helpRect, new GUIContent(VrcsdkPlusToolbox.GUIContent.Help) { tooltip = GetHelpMessage(property) }, GUIStyle.none);
 
                     ParameterContainer(property, parameters, parameterRect);
 
@@ -1408,11 +1413,11 @@ namespace DreadScripts.VRCSDKPlus
                     // ToDo Draw error help if Parameter not found
                 }
 
-                static void DrawName(Rect rect, SerializedProperty property, bool drawLabel)
+                private static void DrawName(Rect rect, SerializedProperty property, bool drawLabel)
                 {
                     if (property == null)
                     {
-                        VRCSDKPlusToolbox.Placeholder.GUI(rect);
+                        VrcsdkPlusToolbox.Placeholder.GUI(rect);
                         return;
                     }
 
@@ -1427,14 +1432,14 @@ namespace DreadScripts.VRCSDKPlus
                     }
 
                     name.stringValue = EditorGUI.TextField(rect, name.stringValue);
-                    if (string.IsNullOrEmpty(name.stringValue)) GUI.Label(rect, "Name", VRCSDKPlusToolbox.Styles.Label.PlaceHolder);
+                    if (string.IsNullOrEmpty(name.stringValue)) GUI.Label(rect, "Name", VrcsdkPlusToolbox.Styles.Label.PlaceHolder);
                 }
 
-                static void DrawType(Rect rect, SerializedProperty property, bool drawLabel)
+                private static void DrawType(Rect rect, SerializedProperty property, bool drawLabel)
                 {
                     if (property == null)
                     {
-                        VRCSDKPlusToolbox.Placeholder.GUI(rect);
+                        VrcsdkPlusToolbox.Placeholder.GUI(rect);
                         return;
                     }
 
@@ -1453,37 +1458,37 @@ namespace DreadScripts.VRCSDKPlus
                         ConversionEntry(property, controlType, newType);
                 }
 
-                static void DrawStyle(Rect rect, SerializedProperty property, bool drawLabel)
+                private static void DrawStyle(Rect rect, SerializedProperty property, bool drawLabel)
                 {
                     const float toggleSize = 21;
 
                     if (property == null)
                     {
-                        VRCSDKPlusToolbox.Placeholder.GUI(rect);
+                        VrcsdkPlusToolbox.Placeholder.GUI(rect);
                         return;
                     }
 
                     if (drawLabel)
                     {
-                        Rect labelRect = new Rect(rect.x, rect.y, 100, rect.height);
+                        var labelRect = new Rect(rect.x, rect.y, 100, rect.height);
                         rect = new Rect(rect.x + 103, rect.y, rect.width - 103, rect.height);
                         GUI.Label(labelRect, "Style");
                     }
 
-                    Rect colorRect = new Rect(rect.x, rect.y, rect.width - (toggleSize + 3) * 2, rect.height);
-                    Rect boldRect = new Rect(colorRect.x + colorRect.width, rect.y, toggleSize, rect.height);
-                    Rect italicRect = new Rect(boldRect); italicRect.x += italicRect.width + 3; boldRect.width = toggleSize;
-                    string rawName = property.FindPropertyRelative("name").stringValue;
-                    Color textColor = Color.white;
+                    var colorRect = new Rect(rect.x, rect.y, rect.width - (toggleSize + 3) * 2, rect.height);
+                    var boldRect = new Rect(colorRect.x + colorRect.width, rect.y, toggleSize, rect.height);
+                    var italicRect = new Rect(boldRect); italicRect.x += italicRect.width + 3; boldRect.width = toggleSize;
+                    var rawName = property.FindPropertyRelative("name").stringValue;
+                    var textColor = Color.white;
 
                     var isBold = rawName.Contains("<b>") && rawName.Contains("</b>");
                     var isItalic = rawName.Contains("<i>") && rawName.Contains("</i>");
-                    var m = Regex.Match(rawName, @"<color=(#[0-9|A-F]{6,8})>");
+                    var m = Regex.Match(rawName, "<color=(#[0-9|A-F]{6,8})>");
                     if (m.Success)
                     {
                         if (rawName.Contains("</color>"))
                         {
-                            if (ColorUtility.TryParseHtmlString(m.Groups[1].Value, out Color newColor))
+                            if (ColorUtility.TryParseHtmlString(m.Groups[1].Value, out var newColor))
                                 textColor = newColor;
 
                         }
@@ -1494,34 +1499,36 @@ namespace DreadScripts.VRCSDKPlus
                     textColor = EditorGUI.ColorField(colorRect, textColor);
                     if (EditorGUI.EndChangeCheck())
                     {
-                        rawName = Regex.Replace(rawName, @"</?color=?.*?>", string.Empty);
+                        rawName = Regex.Replace(rawName, "</?color=?.*?>", string.Empty);
                         rawName = $"<color=#{ColorUtility.ToHtmlStringRGB(textColor)}>{rawName}</color>";
-                    }
-                    
-                    void SetCharTag(char c, bool state)
-                    {
-                        rawName = !state ?
-                            Regex.Replace(rawName, $@"</?{c}>", string.Empty) : 
-                            $"<{c}>{rawName}</{c}>";
                     }
 
                     w_MakeRectLinkCursor(boldRect);
                     EditorGUI.BeginChangeCheck();
-                    isBold = GUI.Toggle(boldRect, isBold, new GUIContent("<b>b</b>","Bold"), VRCSDKPlusToolbox.Styles.letterButton);
+                    isBold = GUI.Toggle(boldRect, isBold, new GUIContent("<b>b</b>","Bold"), VrcsdkPlusToolbox.Styles.LetterButton);
                     if (EditorGUI.EndChangeCheck()) SetCharTag('b', isBold);
 
                     w_MakeRectLinkCursor(italicRect);
                     EditorGUI.BeginChangeCheck();
-                    isItalic = GUI.Toggle(italicRect, isItalic, new GUIContent("<i>i</i>", "Italic"), VRCSDKPlusToolbox.Styles.letterButton);
+                    isItalic = GUI.Toggle(italicRect, isItalic, new GUIContent("<i>i</i>", "Italic"), VrcsdkPlusToolbox.Styles.LetterButton);
                     if (EditorGUI.EndChangeCheck()) SetCharTag('i', isItalic);
 
 
                     property.FindPropertyRelative("name").stringValue = rawName;
+                    return;
+
+                    void SetCharTag(char c, bool state)
+                    {
+                        rawName = !state ?
+                            Regex.Replace(rawName, $"</?{c}>", string.Empty) : 
+                            $"<{c}>{rawName}</{c}>";
+                    }
                 }
-                static void DrawIcon(Rect rect, SerializedProperty property)
+
+                private static void DrawIcon(Rect rect, SerializedProperty property)
                 {
                     if (property == null)
-                        VRCSDKPlusToolbox.Placeholder.GUI(rect);
+                        VrcsdkPlusToolbox.Placeholder.GUI(rect);
                     else
                     {
                         var value = property.FindPropertyRelative("icon");
@@ -1535,36 +1542,37 @@ namespace DreadScripts.VRCSDKPlus
                         );
                     }
                 }
-                static void DrawHelp(Rect rect, SerializedProperty property)
+
+                private static void DrawHelp(Rect rect, SerializedProperty property)
                 {
                     if (property == null)
                     {
-                        VRCSDKPlusToolbox.Placeholder.GUI(rect);
+                        VrcsdkPlusToolbox.Placeholder.GUI(rect);
                         return;
                     }
 
-                    string message = GetHelpMessage(property);
+                    var message = GetHelpMessage(property);
                     EditorGUI.HelpBox(rect, message, MessageType.Info);
                 }
-                static string GetHelpMessage(SerializedProperty property)
+
+                private static string GetHelpMessage(SerializedProperty property)
                 {
-                    switch (property.FindPropertyRelative("type").ToControlType())
+                    return property.FindPropertyRelative("type").ToControlType() switch
                     {
-                        case VRCExpressionsMenu.Control.ControlType.Button:
-                            return "Click or hold to activate. The button remains active for a minimum 0.2s.\nWhile active the (Parameter) is set to (Value).\nWhen inactive the (Parameter) is reset to zero.";
-                        case VRCExpressionsMenu.Control.ControlType.Toggle:
-                            return "Click to toggle on or off.\nWhen turned on the (Parameter) is set to (Value).\nWhen turned off the (Parameter) is reset to zero.";
-                        case VRCExpressionsMenu.Control.ControlType.SubMenu:
-                            return "Opens another expression menu.\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.";
-                        case VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet:
-                            return "Puppet menu that maps the joystick to two parameters (-1 to +1).\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.";
-                        case VRCExpressionsMenu.Control.ControlType.FourAxisPuppet:
-                            return "Puppet menu that maps the joystick to four parameters (0 to 1).\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.";
-                        case VRCExpressionsMenu.Control.ControlType.RadialPuppet:
-                            return "Puppet menu that sets a value based on joystick rotation. (0 to 1)\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.";
-                        default:
-                            return "ERROR: Unable to load message - Invalid control type";
-                    }
+                        VRCExpressionsMenu.Control.ControlType.Button =>
+                            "Click or hold to activate. The button remains active for a minimum 0.2s.\nWhile active the (Parameter) is set to (Value).\nWhen inactive the (Parameter) is reset to zero.",
+                        VRCExpressionsMenu.Control.ControlType.Toggle =>
+                            "Click to toggle on or off.\nWhen turned on the (Parameter) is set to (Value).\nWhen turned off the (Parameter) is reset to zero.",
+                        VRCExpressionsMenu.Control.ControlType.SubMenu =>
+                            "Opens another expression menu.\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.",
+                        VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet =>
+                            "Puppet menu that maps the joystick to two parameters (-1 to +1).\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.",
+                        VRCExpressionsMenu.Control.ControlType.FourAxisPuppet =>
+                            "Puppet menu that maps the joystick to four parameters (0 to 1).\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.",
+                        VRCExpressionsMenu.Control.ControlType.RadialPuppet =>
+                            "Puppet menu that sets a value based on joystick rotation. (0 to 1)\nWhen opened the (Parameter) is set to (Value).\nWhen closed (Parameter) is reset to zero.",
+                        _ => "ERROR: Unable to load message - Invalid control type"
+                    };
                 }
 
                 #endregion
@@ -1575,14 +1583,14 @@ namespace DreadScripts.VRCSDKPlus
                 {
                     // Is old one button / toggle, and new one not?
                     if (
-                            (tOld == VRCExpressionsMenu.Control.ControlType.Button || tOld == VRCExpressionsMenu.Control.ControlType.Toggle) &&
-                            (tNew != VRCExpressionsMenu.Control.ControlType.Button && tNew != VRCExpressionsMenu.Control.ControlType.Toggle)
+                            tOld is VRCExpressionsMenu.Control.ControlType.Button or VRCExpressionsMenu.Control.ControlType.Toggle &&
+                            tNew != VRCExpressionsMenu.Control.ControlType.Button && tNew != VRCExpressionsMenu.Control.ControlType.Toggle
                         )
                         // Reset parameter
                         property.FindPropertyRelative("parameter").FindPropertyRelative("name").stringValue = "";
                     else if (
-                        (tOld != VRCExpressionsMenu.Control.ControlType.Button && tOld != VRCExpressionsMenu.Control.ControlType.Toggle) &&
-                        (tNew == VRCExpressionsMenu.Control.ControlType.Button || tNew == VRCExpressionsMenu.Control.ControlType.Toggle)
+                        tOld != VRCExpressionsMenu.Control.ControlType.Button && tOld != VRCExpressionsMenu.Control.ControlType.Toggle &&
+                        tNew is VRCExpressionsMenu.Control.ControlType.Button or VRCExpressionsMenu.Control.ControlType.Toggle
                     )
                         SetupSubParameters(property, tNew);
 
@@ -1594,9 +1602,7 @@ namespace DreadScripts.VRCSDKPlus
                     if (IsPuppetConversion(tOld, tNew))
                         DoPuppetConversion(property, tNew);
                     else if (
-                        tNew == VRCExpressionsMenu.Control.ControlType.RadialPuppet ||
-                        tNew == VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet ||
-                        tNew == VRCExpressionsMenu.Control.ControlType.FourAxisPuppet
+                        tNew is VRCExpressionsMenu.Control.ControlType.RadialPuppet or VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet or VRCExpressionsMenu.Control.ControlType.FourAxisPuppet
                     )
                         SetupSubParameters(property, tNew);
 
@@ -1605,16 +1611,8 @@ namespace DreadScripts.VRCSDKPlus
 
                 private static bool IsPuppetConversion(VRCExpressionsMenu.Control.ControlType tOld, VRCExpressionsMenu.Control.ControlType tNew)
                 {
-                    return (
-                               tOld == VRCExpressionsMenu.Control.ControlType.RadialPuppet ||
-                               tOld == VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet ||
-                               tOld == VRCExpressionsMenu.Control.ControlType.FourAxisPuppet
-                           ) &&
-                           (
-                               tNew == VRCExpressionsMenu.Control.ControlType.RadialPuppet ||
-                               tNew == VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet ||
-                               tNew == VRCExpressionsMenu.Control.ControlType.FourAxisPuppet
-                           );
+                    return tOld is VRCExpressionsMenu.Control.ControlType.RadialPuppet or VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet or VRCExpressionsMenu.Control.ControlType.FourAxisPuppet &&
+                           tNew is VRCExpressionsMenu.Control.ControlType.RadialPuppet or VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet or VRCExpressionsMenu.Control.ControlType.FourAxisPuppet;
                 }
 
                 private static void DoPuppetConversion(SerializedProperty property, VRCExpressionsMenu.Control.ControlType tNew)
@@ -1669,6 +1667,12 @@ namespace DreadScripts.VRCSDKPlus
                             subParameters.InsertArrayElementAtIndex(2);
                             subParameters.InsertArrayElementAtIndex(3);
                             break;
+                        case VRCExpressionsMenu.Control.ControlType.Button:
+                            break;
+                        case VRCExpressionsMenu.Control.ControlType.Toggle:
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(nameof(type), type, null);
                     }
                 }
 
@@ -1686,7 +1690,7 @@ namespace DreadScripts.VRCSDKPlus
 
                 #region BuildParameterArray
 
-                static void BuildParameterArray(
+                private static void BuildParameterArray(
                     string name,
                     VRCExpressionParameters parameters,
                     out int index,
@@ -1717,22 +1721,17 @@ namespace DreadScripts.VRCSDKPlus
                     parametersAsString[0] = "[None]";
                     for (var i = 0; i < parameters.parameters.Length; i++)
                     {
-                        switch (parameters.parameters[i].valueType)
+                        parametersAsString[i + 1] = parameters.parameters[i].valueType switch
                         {
-                            case VRCExpressionParameters.ValueType.Int:
-                                parametersAsString[i + 1] = $"{parameters.parameters[i].name} [int]";
-                                break;
-                            case VRCExpressionParameters.ValueType.Float:
-                                parametersAsString[i + 1] = $"{parameters.parameters[i].name} [float]";
-                                break;
-                            case VRCExpressionParameters.ValueType.Bool:
-                                parametersAsString[i + 1] = $"{parameters.parameters[i].name} [bool]";
-                                break;
-                        }
+                            VRCExpressionParameters.ValueType.Int => $"{parameters.parameters[i].name} [int]",
+                            VRCExpressionParameters.ValueType.Float => $"{parameters.parameters[i].name} [float]",
+                            VRCExpressionParameters.ValueType.Bool => $"{parameters.parameters[i].name} [bool]",
+                            _ => parametersAsString[i + 1]
+                        };
                     }
                 }
 
-                static void BuildParameterArray(
+                private static void BuildParameterArray(
                     string name,
                     VRCExpressionParameters parameters,
                     out int index,
@@ -1768,18 +1767,13 @@ namespace DreadScripts.VRCSDKPlus
                     filteredParametersAsString[0] = "[None]";
                     for (var i = 0; i < filteredParameters.Length; i++)
                     {
-                        switch (filteredParameters[i].valueType)
+                        filteredParametersAsString[i + 1] = filteredParameters[i].valueType switch
                         {
-                            case VRCExpressionParameters.ValueType.Int:
-                                filteredParametersAsString[i + 1] = $"{filteredParameters[i].name} [int]";
-                                break;
-                            case VRCExpressionParameters.ValueType.Float:
-                                filteredParametersAsString[i + 1] = $"{filteredParameters[i].name} [float]";
-                                break;
-                            case VRCExpressionParameters.ValueType.Bool:
-                                filteredParametersAsString[i + 1] = $"{filteredParameters[i].name} [bool]";
-                                break;
-                        }
+                            VRCExpressionParameters.ValueType.Int => $"{filteredParameters[i].name} [int]",
+                            VRCExpressionParameters.ValueType.Float => $"{filteredParameters[i].name} [float]",
+                            VRCExpressionParameters.ValueType.Bool => $"{filteredParameters[i].name} [bool]",
+                            _ => throw new ArgumentOutOfRangeException()
+                        };
                     }
                 }
 
@@ -1787,31 +1781,31 @@ namespace DreadScripts.VRCSDKPlus
 
                 #region DrawParameterSelector
 
-                struct ParameterSelectorOptions
+                private struct ParameterSelectorOptions
                 {
-                    public Action extraGUI;
-                    public Rect rect;
-                    public bool required;
+                    public Action ExtraGUI;
+                    public Rect Rect;
+                    public bool Required;
 
                     public ParameterSelectorOptions(Rect rect, bool required, Action extraGUI = null)
                     {
-                        this.required = required;
-                        this.rect = rect;
-                        this.extraGUI = extraGUI;
+                        Required = required;
+                        Rect = rect;
+                        ExtraGUI = extraGUI;
                     }
 
                     public ParameterSelectorOptions(Rect rect, Action extraGUI = null)
                     {
-                        this.required = false;
-                        this.rect = rect;
-                        this.extraGUI = extraGUI;
+                        Required = false;
+                        Rect = rect;
+                        ExtraGUI = extraGUI;
                     }
 
                     public ParameterSelectorOptions(bool required, Action extraGUI = null)
                     {
-                        this.required = required;
-                        this.rect = default;
-                        this.extraGUI = extraGUI;
+                        Required = required;
+                        Rect = default;
+                        ExtraGUI = extraGUI;
                     }
                 }
 
@@ -1840,13 +1834,11 @@ namespace DreadScripts.VRCSDKPlus
                     );
                 }
 
-                private static bool DrawParameterSelector(
-                    string label,
+                private static void DrawParameterSelector(string label,
                     SerializedProperty property,
                     VRCExpressionParameters parameters,
                     VRCExpressionParameters.ValueType filter,
-                    ParameterSelectorOptions options = default
-                )
+                    ParameterSelectorOptions options = default)
                 {
                     BuildParameterArray(
                         property.FindPropertyRelative("name").stringValue,
@@ -1856,7 +1848,7 @@ namespace DreadScripts.VRCSDKPlus
                         out var parametersAsString,
                         filter
                     );
-                    return DrawParameterSelection__BASE(
+                    DrawParameterSelection__BASE(
                         label,
                         property,
                         index,
@@ -1881,47 +1873,47 @@ namespace DreadScripts.VRCSDKPlus
                 {
                     var isEmpty = index == -1;
                     var isMissing = index == -2;
-                    bool willWarn = isMissing || options.required && isEmpty;
-                    string parameterName = property.FindPropertyRelative("name").stringValue;
-                    string warnMsg = targetParameters ? isMissing ? isFiltered ?
+                    var willWarn = isMissing || options.Required && isEmpty;
+                    var parameterName = property.FindPropertyRelative("name").stringValue;
+                    var warnMsg = targetParameters ? isMissing ? isFiltered ?
                                 $"Parameter ({parameterName}) not found or invalid" :
                                 $"Parameter ({parameterName}) not found on the active avatar descriptor" :
                             "Parameter is blank. Control may be dysfunctional." :
-                        VRCSDKPlusToolbox.GUIContent.MissingParametersTooltip;
+                        VrcsdkPlusToolbox.GUIContent.MissingParametersTooltip;
 
-                    var rectNotProvided = options.rect == default;
+                    var rectNotProvided = options.Rect == default;
                     using (new GUILayout.HorizontalScope())
                     {
-                        const float CONTENT_ADD_WIDTH = 50;
-                        const float CONTENT_WARN_WIDTH = 18;
-                        const float CONTENT_DROPDOWN_WIDTH = 20;
+                        const float contentAddWidth = 50;
+                        const float contentWarnWidth = 18;
+                        const float contentDropdownWidth = 20;
                         //const float CONTENT_TEXT_FIELD_PORTION = 0.25f;
-                        float missingFullWidth = CONTENT_ADD_WIDTH + CONTENT_WARN_WIDTH + 2;
+                        const float missingFullWidth = contentAddWidth + contentWarnWidth + 2;
 
-                        bool hasLabel = !string.IsNullOrEmpty(label);
+                        var hasLabel = !string.IsNullOrEmpty(label);
 
-                        if (rectNotProvided) options.rect = EditorGUILayout.GetControlRect(false, 18);
+                        if (rectNotProvided) options.Rect = EditorGUILayout.GetControlRect(false, 18);
 
                         var name = property.FindPropertyRelative("name");
 
-                        Rect labelRect = new Rect(options.rect) { width = hasLabel ? 120 : 0 };
-                        Rect textfieldRect = new Rect(labelRect) { x = labelRect.x + labelRect.width, width = options.rect.width - labelRect.width - CONTENT_DROPDOWN_WIDTH - 2 };
-                        Rect dropdownRect = new Rect(textfieldRect) { x = textfieldRect.x + textfieldRect.width, width = CONTENT_DROPDOWN_WIDTH };
-                        Rect addRect = Rect.zero;
-                        Rect warnRect = Rect.zero;
+                        var labelRect = new Rect(options.Rect) { width = hasLabel ? 120 : 0 };
+                        var textfieldRect = new Rect(labelRect) { x = labelRect.x + labelRect.width, width = options.Rect.width - labelRect.width - contentDropdownWidth - 2 };
+                        var dropdownRect = new Rect(textfieldRect) { x = textfieldRect.x + textfieldRect.width, width = contentDropdownWidth };
+                        var addRect = Rect.zero;
+                        var warnRect = Rect.zero;
 
                         if (targetParameters && isMissing)
                         {
                             textfieldRect.width -= missingFullWidth;
                             dropdownRect.x -= missingFullWidth;
-                            addRect = new Rect(options.rect) { x = textfieldRect.x + textfieldRect.width + CONTENT_DROPDOWN_WIDTH + 2, width = CONTENT_ADD_WIDTH };
-                            warnRect = new Rect(addRect) { x = addRect.x + addRect.width, width = CONTENT_WARN_WIDTH };
+                            addRect = new Rect(options.Rect) { x = textfieldRect.x + textfieldRect.width + contentDropdownWidth + 2, width = contentAddWidth };
+                            warnRect = new Rect(addRect) { x = addRect.x + addRect.width, width = contentWarnWidth };
                         }
-                        else if (!targetParameters || options.required && isEmpty)
+                        else if (!targetParameters || options.Required && isEmpty)
                         {
-                            textfieldRect.width -= CONTENT_WARN_WIDTH;
-                            dropdownRect.x -= CONTENT_WARN_WIDTH;
-                            warnRect = new Rect(dropdownRect) { x = dropdownRect.x + dropdownRect.width, width = CONTENT_WARN_WIDTH };
+                            textfieldRect.width -= contentWarnWidth;
+                            dropdownRect.x -= contentWarnWidth;
+                            warnRect = new Rect(dropdownRect) { x = dropdownRect.x + dropdownRect.width, width = contentWarnWidth };
                         }
 
                         if (hasLabel) GUI.Label(labelRect, label);
@@ -1933,8 +1925,8 @@ namespace DreadScripts.VRCSDKPlus
                         }
 
                         name.stringValue = EditorGUI.TextField(textfieldRect, name.stringValue);
-                        if (string.IsNullOrEmpty(name.stringValue)) GUI.Label(textfieldRect, "Parameter", VRCSDKPlusToolbox.Styles.Label.PlaceHolder);
-                        if (willWarn) GUI.Label(warnRect, new GUIContent(VRCSDKPlusToolbox.GUIContent.Warn) { tooltip = warnMsg });
+                        if (string.IsNullOrEmpty(name.stringValue)) GUI.Label(textfieldRect, "Parameter", VrcsdkPlusToolbox.Styles.Label.PlaceHolder);
+                        if (willWarn) GUI.Label(warnRect, new GUIContent(VrcsdkPlusToolbox.GUIContent.Warn) { tooltip = warnMsg });
 
                         if (isMissing)
                         {
@@ -1951,7 +1943,7 @@ namespace DreadScripts.VRCSDKPlus
 
                             if (dummy != -1)
                             {
-                                SerializedObject so = new SerializedObject(targetParameters);
+                                var so = new SerializedObject(targetParameters);
                                 var param = so.FindProperty("parameters");
                                 var prop = param.GetArrayElementAtIndex(param.arraySize++);
                                 prop.FindPropertyRelative("valueType").enumValueIndex = dummy;
@@ -1962,7 +1954,7 @@ namespace DreadScripts.VRCSDKPlus
                             }
                         }
 
-                        options.extraGUI?.Invoke();
+                        options.ExtraGUI?.Invoke();
                     }
 
                     return isMissing;
@@ -1972,7 +1964,7 @@ namespace DreadScripts.VRCSDKPlus
 
                 #region Parameter conainer
 
-                static void ParameterContainer(
+                private static void ParameterContainer(
                     SerializedProperty property,
                     VRCExpressionParameters parameters,
                     Rect rect = default
@@ -1983,39 +1975,39 @@ namespace DreadScripts.VRCSDKPlus
                     if (property?.FindPropertyRelative("parameter") == null)
                     {
                         if (rectProvided)
-                            VRCSDKPlusToolbox.Placeholder.GUI(rect);
+                            VrcsdkPlusToolbox.Placeholder.GUI(rect);
                         else
                         {
-                            VRCSDKPlusToolbox.Container.BeginLayout();
-                            VRCSDKPlusToolbox.Placeholder.GUILayout(18);
-                            VRCSDKPlusToolbox.Container.EndLayout();
+                            VrcsdkPlusToolbox.Container.BeginLayout();
+                            VrcsdkPlusToolbox.Placeholder.GUILayout(18);
+                            VrcsdkPlusToolbox.Container.EndLayout();
                         }
                     }
                     else
                     {
-                        if (!rectProvided) VRCSDKPlusToolbox.Container.BeginLayout();
+                        if (!rectProvided) VrcsdkPlusToolbox.Container.BeginLayout();
 
-                        float CONTENT_VALUE_SELECTOR_WIDTH = 50;
+                        const float contentValueSelectorWidth = 50;
                         Rect selectorRect = default;
                         Rect valueRect = default;
 
                         if (rectProvided)
                         {
-                            selectorRect = new Rect(rect.x, rect.y, rect.width - CONTENT_VALUE_SELECTOR_WIDTH - 3,
+                            selectorRect = new Rect(rect.x, rect.y, rect.width - contentValueSelectorWidth - 3,
                                 rect.height);
                             valueRect = new Rect(selectorRect.x + selectorRect.width + 3, rect.y,
-                                CONTENT_VALUE_SELECTOR_WIDTH, rect.height);
+                                contentValueSelectorWidth, rect.height);
                         }
 
                         var parameter = property.FindPropertyRelative("parameter");
 
                         var t = (VRCExpressionsMenu.Control.ControlType)property.FindPropertyRelative("type").intValue;
-                        bool isRequired = t == VRCExpressionsMenu.Control.ControlType.Button || t == VRCExpressionsMenu.Control.ControlType.Toggle;
+                        var isRequired = t is VRCExpressionsMenu.Control.ControlType.Button or VRCExpressionsMenu.Control.ControlType.Toggle;
                         DrawParameterSelector(rectProvided ? string.Empty : "Parameter", parameter, parameters, new ParameterSelectorOptions()
                         {
-                            rect = selectorRect,
-                            required = isRequired,
-                            extraGUI = () =>
+                            Rect = selectorRect,
+                            Required = isRequired,
+                            ExtraGUI = () =>
                             {
                                 #region Value selector
 
@@ -2030,20 +2022,20 @@ namespace DreadScripts.VRCSDKPlus
                                     case VRCExpressionParameters.ValueType.Int:
                                         value.floatValue = Mathf.Clamp(rectProvided ?
                                             EditorGUI.IntField(valueRect, (int)value.floatValue) :
-                                            EditorGUILayout.IntField((int)value.floatValue, GUILayout.Width(CONTENT_VALUE_SELECTOR_WIDTH)), 0f, 255f);
+                                            EditorGUILayout.IntField((int)value.floatValue, GUILayout.Width(contentValueSelectorWidth)), 0f, 255f);
                                         break;
 
                                     case VRCExpressionParameters.ValueType.Float:
                                         value.floatValue = Mathf.Clamp(rectProvided ?
                                             EditorGUI.FloatField(valueRect, value.floatValue) :
-                                            EditorGUILayout.FloatField(value.floatValue, GUILayout.Width(CONTENT_VALUE_SELECTOR_WIDTH)), -1, 1);
+                                            EditorGUILayout.FloatField(value.floatValue, GUILayout.Width(contentValueSelectorWidth)), -1, 1);
                                         break;
 
                                     case VRCExpressionParameters.ValueType.Bool:
                                         using (new EditorGUI.DisabledScope(true))
                                         {
                                             if (rectProvided) EditorGUI.TextField(valueRect, string.Empty);
-                                            else EditorGUILayout.TextField(string.Empty, GUILayout.Width(CONTENT_VALUE_SELECTOR_WIDTH));
+                                            else EditorGUILayout.TextField(string.Empty, GUILayout.Width(contentValueSelectorWidth));
                                         }
 
                                         value.floatValue = 1f;
@@ -2052,7 +2044,7 @@ namespace DreadScripts.VRCSDKPlus
                                     default:
                                         value.floatValue = Mathf.Clamp(rectProvided ?
                                             EditorGUI.FloatField(valueRect, value.floatValue) :
-                                            EditorGUILayout.FloatField(value.floatValue, GUILayout.Width(CONTENT_VALUE_SELECTOR_WIDTH)), -1, 255);
+                                            EditorGUILayout.FloatField(value.floatValue, GUILayout.Width(contentValueSelectorWidth)), -1, 255);
                                         break;
                                 }
                                 #endregion
@@ -2060,7 +2052,7 @@ namespace DreadScripts.VRCSDKPlus
                         });
 
                         if (!rectProvided)
-                            VRCSDKPlusToolbox.Container.EndLayout();
+                            VrcsdkPlusToolbox.Container.EndLayout();
                     }
                 }
 
@@ -2068,9 +2060,9 @@ namespace DreadScripts.VRCSDKPlus
 
                 #region Miscellaneous containers
 
-                static void RadialContainer(SerializedProperty property, VRCExpressionParameters parameters)
+                private static void RadialContainer(SerializedProperty property, VRCExpressionParameters parameters)
                 {
-                    using (new VRCSDKPlusToolbox.Container.Vertical())
+                    using (new VrcsdkPlusToolbox.Container.Vertical())
                         DrawParameterSelector(
                             "Rotation",
                             property.FindPropertyRelative("subParameters").GetArrayElementAtIndex(0),
@@ -2080,13 +2072,13 @@ namespace DreadScripts.VRCSDKPlus
                         );
                 }
 
-                static void SubMenuContainer(SerializedProperty property)
+                private static void SubMenuContainer(SerializedProperty property)
                 {
-                    using (new VRCSDKPlusToolbox.Container.Vertical())
+                    using (new VrcsdkPlusToolbox.Container.Vertical())
                     {
                         var subMenu = property.FindPropertyRelative("subMenu");
                         var nameProperty = property.FindPropertyRelative("name");
-                        bool emptySubmenu = subMenu.objectReferenceValue == null;
+                        var emptySubmenu = subMenu.objectReferenceValue == null;
 
                         using (new GUILayout.HorizontalScope())
                         {
@@ -2096,48 +2088,47 @@ namespace DreadScripts.VRCSDKPlus
                                 using (new EditorGUI.DisabledScope(_currentNode?.Value == null))
                                     if (GUILayout.Button("New", GUILayout.Width(40)))
                                     {
-                                        var m = _currentNode.Value;
+                                        var m = _currentNode?.Value;
                                         var path = AssetDatabase.GetAssetPath(m);
                                         if (string.IsNullOrEmpty(path))
-                                            path = $"Assets/{m.name}.asset";
+                                            path = $"Assets/{m?.name}.asset";
                                         var parentPath = Path.GetDirectoryName(path);
-                                        var assetName = string.IsNullOrEmpty(nameProperty?.stringValue) ? $"{m.name} SubMenu.asset" : $"{nameProperty.stringValue} Menu.asset";
-                                        var newMenuPath = VRCSDKPlusToolbox.ReadyAssetPath(parentPath, assetName, true);
+                                        var assetName = string.IsNullOrEmpty(nameProperty?.stringValue) ? $"{m?.name} SubMenu.asset" : $"{nameProperty.stringValue} Menu.asset";
+                                        var newMenuPath = VrcsdkPlusToolbox.ReadyAssetPath(parentPath, assetName, true);
 
                                         var newMenu = CreateInstance<VRCExpressionsMenu>();
-                                        if (newMenu.controls == null)
-                                            newMenu.controls = new List<VRCExpressionsMenu.Control>();
+                                        newMenu.controls ??= new List<VRCExpressionsMenu.Control>();
 
                                         AssetDatabase.CreateAsset(newMenu, newMenuPath);
                                         subMenu.objectReferenceValue = newMenu;
                                     }
-                                GUILayout.Label(new GUIContent(VRCSDKPlusToolbox.GUIContent.Warn) { tooltip = "Submenu is empty. This control has no use." }, VRCSDKPlusToolbox.Styles.icon);
+                                GUILayout.Label(new GUIContent(VrcsdkPlusToolbox.GUIContent.Warn) { tooltip = "Submenu is empty. This control has no use." }, VrcsdkPlusToolbox.Styles.Icon);
                             }
                             using (new EditorGUI.DisabledScope(emptySubmenu))
                             {
-                                if (ClickableButton(VRCSDKPlusToolbox.GUIContent.Folder, VRCSDKPlusToolbox.Styles.icon))
+                                if (ClickableButton(VrcsdkPlusToolbox.GUIContent.Folder, VrcsdkPlusToolbox.Styles.Icon))
                                     Selection.activeObject = subMenu.objectReferenceValue;
-                                if (ClickableButton(VRCSDKPlusToolbox.GUIContent.Clear, VRCSDKPlusToolbox.Styles.icon))
+                                if (ClickableButton(VrcsdkPlusToolbox.GUIContent.Clear, VrcsdkPlusToolbox.Styles.Icon))
                                     subMenu.objectReferenceValue = null;
                             }
                         }
                     }
                 }
 
-                static void CompactTwoAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
+                private static void CompactTwoAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
                 {
-                    using (new VRCSDKPlusToolbox.Container.Vertical())
+                    using (new VrcsdkPlusToolbox.Container.Vertical())
                     {
                         using (new GUILayout.HorizontalScope())
                         {
                             using (new GUILayout.HorizontalScope())
-                                GUILayout.Label("Axis Parameters", VRCSDKPlusToolbox.Styles.Label.Centered);
+                                GUILayout.Label("Axis Parameters", VrcsdkPlusToolbox.Styles.Label.Centered);
 
 
                             using (new GUILayout.HorizontalScope())
                             {
-                                GUILayout.Label("Name -", VRCSDKPlusToolbox.Styles.Label.Centered);
-                                GUILayout.Label("Name +", VRCSDKPlusToolbox.Styles.Label.Centered);
+                                GUILayout.Label("Name -", VrcsdkPlusToolbox.Styles.Label.Centered);
+                                GUILayout.Label("Name +", VrcsdkPlusToolbox.Styles.Label.Centered);
                             }
                         }
 
@@ -2191,17 +2182,18 @@ namespace DreadScripts.VRCSDKPlus
                     }
 
                 }
-                static void CompactFourAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
+
+                private static void CompactFourAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
                 {
-                    using (new VRCSDKPlusToolbox.Container.Vertical())
+                    using (new VrcsdkPlusToolbox.Container.Vertical())
                     {
                         using (new GUILayout.HorizontalScope())
                         {
                             var headerRect = EditorGUILayout.GetControlRect();
                             var r1 = new Rect(headerRect) { width = headerRect.width / 2 };
                             var r2 = new Rect(r1) { x = r1.x + r1.width };
-                            GUI.Label(r1, "Axis Parameters", VRCSDKPlusToolbox.Styles.Label.Centered);
-                            GUI.Label(r2, "Name", VRCSDKPlusToolbox.Styles.Label.Centered);
+                            GUI.Label(r1, "Axis Parameters", VrcsdkPlusToolbox.Styles.Label.Centered);
+                            GUI.Label(r2, "Name", VrcsdkPlusToolbox.Styles.Label.Centered);
                         }
 
                         var subs = property.FindPropertyRelative("subParameters");
@@ -2286,11 +2278,12 @@ namespace DreadScripts.VRCSDKPlus
                     }
 
                 }
-                static void TwoAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
-                {
-                    VRCSDKPlusToolbox.Container.BeginLayout();
 
-                    GUILayout.Label("Axis Parameters", VRCSDKPlusToolbox.Styles.Label.Centered);
+                private static void TwoAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
+                {
+                    VrcsdkPlusToolbox.Container.BeginLayout();
+
+                    GUILayout.Label("Axis Parameters", VrcsdkPlusToolbox.Styles.Label.Centered);
 
                     var subs = property.FindPropertyRelative("subParameters");
                     var sub0 = subs.GetArrayElementAtIndex(0);
@@ -2312,12 +2305,12 @@ namespace DreadScripts.VRCSDKPlus
                         new ParameterSelectorOptions(true)
                     );
 
-                    VRCSDKPlusToolbox.Container.EndLayout();
+                    VrcsdkPlusToolbox.Container.EndLayout();
                 }
 
-                static void FourAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
+                private static void FourAxisParametersContainer(SerializedProperty property, VRCExpressionParameters parameters)
                 {
-                    VRCSDKPlusToolbox.Container.BeginLayout("Axis Parameters");
+                    VrcsdkPlusToolbox.Container.BeginLayout("Axis Parameters");
 
                     var subs = property.FindPropertyRelative("subParameters");
                     var sub0 = subs.GetArrayElementAtIndex(0);
@@ -2357,14 +2350,14 @@ namespace DreadScripts.VRCSDKPlus
                         new ParameterSelectorOptions(true)
                     );
 
-                    VRCSDKPlusToolbox.Container.EndLayout();
+                    VrcsdkPlusToolbox.Container.EndLayout();
                 }
 
-                static void AxisCustomisationContainer(SerializedProperty property)
+                private static void AxisCustomisationContainer(SerializedProperty property)
                 {
                     var labels = SafeGetLabels(property);
 
-                    using (new VRCSDKPlusToolbox.Container.Vertical("Customization"))
+                    using (new VrcsdkPlusToolbox.Container.Vertical("Customization"))
                     {
                         DrawLabel(labels.GetArrayElementAtIndex(0), "Up");
                         DrawLabel(labels.GetArrayElementAtIndex(1), "Right");
@@ -2373,7 +2366,7 @@ namespace DreadScripts.VRCSDKPlus
                     }
                 }
 
-                static SerializedProperty SafeGetLabels(SerializedProperty property)
+                private static SerializedProperty SafeGetLabels(SerializedProperty property)
                 {
                     var labels = property.FindPropertyRelative("labels");
 
@@ -2398,11 +2391,11 @@ namespace DreadScripts.VRCSDKPlus
                     return labels;
                 }
 
-                static void DrawLabel(SerializedProperty property, string type)
+                private static void DrawLabel(SerializedProperty property, string type)
                 {
-                    bool compact = VRCSDKPlusToolbox.Preferences.CompactMode;
+                    var compact = VrcsdkPlusToolbox.Preferences.CompactMode;
                     float imgWidth = compact ? 28 : 58;
-                    float imgHeight = compact ? EditorGUIUtility.singleLineHeight : 58;
+                    var imgHeight = compact ? EditorGUIUtility.singleLineHeight : 58;
 
                     var imgProperty = property.FindPropertyRelative("icon");
                     var nameProperty = property.FindPropertyRelative("name");
@@ -2414,11 +2407,11 @@ namespace DreadScripts.VRCSDKPlus
                         {
                             if (!compact)
                                 using (new EditorGUI.DisabledScope(true))
-                                    EditorGUILayout.LabelField("Axis", type, VRCSDKPlusToolbox.Styles.Label.LabelDropdown);
+                                    EditorGUILayout.LabelField("Axis", type, VrcsdkPlusToolbox.Styles.Label.LabelDropdown);
 
                             EditorGUILayout.PropertyField(nameProperty, compact ? GUIContent.none : new GUIContent("Name"));
                             var nameRect = GUILayoutUtility.GetLastRect();
-                            if (compact && string.IsNullOrEmpty(nameProperty.stringValue)) GUI.Label(nameRect, $"{type}", VRCSDKPlusToolbox.Styles.Label.PlaceHolder);
+                            if (compact && string.IsNullOrEmpty(nameProperty.stringValue)) GUI.Label(nameRect, $"{type}", VrcsdkPlusToolbox.Styles.Label.PlaceHolder);
                         }
 
                         imgProperty.objectReferenceValue = EditorGUILayout.ObjectField(imgProperty.objectReferenceValue, typeof(Texture2D), false, GUILayout.Width(imgWidth), GUILayout.Height(imgHeight));
@@ -2436,25 +2429,27 @@ namespace DreadScripts.VRCSDKPlus
 
         #region Helper Methods
         #region Clickables
-        internal static bool ClickableButton(string     label, GUIStyle                 style = null, params GUILayoutOption[] options) => ClickableButton(new GUIContent(label), style, options);
-        internal static bool ClickableButton(string     label, params GUILayoutOption[] options) => ClickableButton(new GUIContent(label), null, options);
+
+        private static bool ClickableButton(string     label, GUIStyle                 style = null, params GUILayoutOption[] options) => ClickableButton(new GUIContent(label), style, options);
+
+        private static bool ClickableButton(string     label, params GUILayoutOption[] options) => ClickableButton(new GUIContent(label), null, options);
+
         internal static bool ClickableButton(GUIContent label, params GUILayoutOption[] options) => ClickableButton(label,                 null, options);
-        internal static bool ClickableButton(GUIContent label, GUIStyle style = null, params GUILayoutOption[] options)
+
+        private static bool ClickableButton(GUIContent label, GUIStyle style = null, params GUILayoutOption[] options)
         {
-            if (style == null)
-                style = GUI.skin.button;
-            bool clicked = GUILayout.Button(label, style, options);
+            style ??= GUI.skin.button;
+            var clicked = GUILayout.Button(label, style, options);
             if (GUI.enabled) w_MakeRectLinkCursor();
             return clicked;
         }
-        internal static void w_MakeRectLinkCursor(Rect rect = default)
+
+        private static void w_MakeRectLinkCursor(Rect rect = default)
         {
             if (!GUI.enabled) return;
-            if (Event.current.type == EventType.Repaint)
-            {
-                if (rect == default) rect = GUILayoutUtility.GetLastRect();
-                EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
-            }
+            if (Event.current.type != EventType.Repaint) return;
+            if (rect == default) rect = GUILayoutUtility.GetLastRect();
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
         }
         internal static bool w_MakeRectClickable(Rect rect = default)
         {
@@ -2470,32 +2465,30 @@ namespace DreadScripts.VRCSDKPlus
             var bgcolor = GUI.backgroundColor;
             GUI.backgroundColor = Color.clear;
 
-            if (GUILayout.Button(new GUIContent(label, url), VRCSDKPlusToolbox.Styles.Label.faintLinkLabel))
+            if (GUILayout.Button(new GUIContent(label, url), VrcsdkPlusToolbox.Styles.Label.FaintLinkLabel))
                 Application.OpenURL(url);
             w_UnderlineLastRectOnHover();
             
             GUI.backgroundColor = bgcolor;
         }
-        
-        internal static void w_UnderlineLastRectOnHover(Color? color = null)
+
+        private static void w_UnderlineLastRectOnHover(Color? color = null)
         {
-            if (color == null) color = new Color(0.3f, 0.7f, 1);
-            if (Event.current.type == EventType.Repaint)
-            {
-                var rect = GUILayoutUtility.GetLastRect();
-                var mp = Event.current.mousePosition;
-                if (rect.Contains(mp)) EditorGUI.DrawRect(new Rect(rect.x, rect.yMax - 1, rect.width, 1), color.Value);
-                EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
-            }
+            color ??= new Color(0.3f, 0.7f, 1);
+            if (Event.current.type != EventType.Repaint) return;
+            var rect = GUILayoutUtility.GetLastRect();
+            var mp = Event.current.mousePosition;
+            if (rect.Contains(mp)) EditorGUI.DrawRect(new Rect(rect.x, rect.yMax - 1, rect.width, 1), color.Value);
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.Link);
 
         }
-        
-        internal static System.Type ExtendedGetType(string typeName)
+
+        private static Type ExtendedGetType(string typeName)
         {
-            var myType = System.Type.GetType(typeName);
+            var myType = Type.GetType(typeName);
             if (myType != null)
                 return myType;
-            foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 var types = assembly.GetTypes();
                 myType = types.FirstOrDefault(t  => t.FullName == typeName);
@@ -2507,7 +2500,8 @@ namespace DreadScripts.VRCSDKPlus
             }
             return null;
         }
-        internal static void RefreshAvatar(ref VRCAvatarDescriptor avatar, ref VRCAvatarDescriptor[] validAvatars, System.Action OnAvatarChanged = null, System.Func<VRCAvatarDescriptor, bool> favoredAvatar = null)
+
+        private static void RefreshAvatar(ref VRCAvatarDescriptor avatar, ref VRCAvatarDescriptor[] validAvatars, Action onAvatarChanged = null, Func<VRCAvatarDescriptor, bool> favoredAvatar = null)
         {
             validAvatars = Object.FindObjectsOfType<VRCAvatarDescriptor>();
             if (avatar) return;
@@ -2519,33 +2513,31 @@ namespace DreadScripts.VRCSDKPlus
                 else avatar = validAvatars[0];
             }
 
-            OnAvatarChanged?.Invoke();
+            onAvatarChanged?.Invoke();
         }
 
-        internal static bool DrawAdvancedAvatarFull(ref VRCAvatarDescriptor avatar, VRCAvatarDescriptor[] validAvatars, System.Action OnAvatarChanged = null, bool warnNonHumanoid = true, bool warnPrefab = true, bool warnDoubleFX = true, string label = "Avatar", string tooltip = "The Targeted VRCAvatar", System.Action ExtraGUI = null)
-            => DrawAdvancedAvatarField(ref avatar, validAvatars, OnAvatarChanged, label, tooltip, ExtraGUI) && DrawAdvancedAvatarWarning(avatar, warnNonHumanoid, warnPrefab, warnDoubleFX);
+        private static bool DrawAdvancedAvatarFull(ref VRCAvatarDescriptor avatar, VRCAvatarDescriptor[] validAvatars, Action onAvatarChanged = null, bool warnNonHumanoid = true, bool warnPrefab = true, bool warnDoubleFX = true, string label = "Avatar", string tooltip = "The Targeted VRCAvatar", Action extraGUI = null)
+            => DrawAdvancedAvatarField(ref avatar, validAvatars, onAvatarChanged, label, tooltip, extraGUI) && DrawAdvancedAvatarWarning(avatar, warnNonHumanoid, warnPrefab, warnDoubleFX);
 
-        private static VRCAvatarDescriptor DrawAdvancedAvatarField(ref VRCAvatarDescriptor avatar, VRCAvatarDescriptor[] validAvatars, System.Action OnAvatarChanged = null, string label = "Avatar", string tooltip = "The Targeted VRCAvatar", System.Action ExtraGUI = null)
+        private static VRCAvatarDescriptor DrawAdvancedAvatarField(ref VRCAvatarDescriptor avatar, VRCAvatarDescriptor[] validAvatars, Action onAvatarChanged = null, string label = "Avatar", string tooltip = "The Targeted VRCAvatar", Action extraGUI = null)
         {
             using (new GUILayout.HorizontalScope())
             {
                 var avatarContent = new GUIContent(label, tooltip);
-                if (validAvatars == null || validAvatars.Length <= 0) EditorGUILayout.LabelField(avatarContent, new GUIContent("No Avatar Descriptors Found"));
+                if (validAvatars is not { Length: > 0 }) EditorGUILayout.LabelField(avatarContent, new GUIContent("No Avatar Descriptors Found"));
                 else
                 {
-                    using (var change = new EditorGUI.ChangeCheckScope())
+                    using var change = new EditorGUI.ChangeCheckScope();
+                    var dummy = EditorGUILayout.Popup(avatarContent, avatar ? Array.IndexOf(validAvatars, avatar) : -1, validAvatars.Where(a => a).Select(x => x.name).ToArray());
+                    if (change.changed)
                     {
-                        int dummy = EditorGUILayout.Popup(avatarContent, avatar ? Array.IndexOf(validAvatars, avatar) : -1, validAvatars.Where(a => a).Select(x => x.name).ToArray());
-                        if (change.changed)
-                        {
-                            avatar = validAvatars[dummy];
-                            EditorGUIUtility.PingObject(avatar);
-                            OnAvatarChanged?.Invoke();
-                        }
+                        avatar = validAvatars[dummy];
+                        EditorGUIUtility.PingObject(avatar);
+                        onAvatarChanged?.Invoke();
                     }
                 }
 
-                ExtraGUI?.Invoke();
+                extraGUI?.Invoke();
             }
             return avatar;
         }
@@ -2558,13 +2550,11 @@ namespace DreadScripts.VRCSDKPlus
         private static bool DrawPrefabWarning(VRCAvatarDescriptor avatar)
         {
             if (!avatar) return false;
-            bool isPrefab = PrefabUtility.IsPartOfAnyPrefab(avatar.gameObject);
-            if (isPrefab)
-            {
-                EditorGUILayout.HelpBox("Target Avatar is a part of a prefab. Prefab unpacking is required.", MessageType.Error);
-                if (GUILayout.Button("Unpack")) PrefabUtility.UnpackPrefabInstance(avatar.gameObject, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
-            }
-            return isPrefab;
+            var isPrefab = PrefabUtility.IsPartOfAnyPrefab(avatar.gameObject);
+            if (!isPrefab) return false;
+            EditorGUILayout.HelpBox("Target Avatar is a part of a prefab. Prefab unpacking is required.", MessageType.Error);
+            if (GUILayout.Button("Unpack")) PrefabUtility.UnpackPrefabInstance(avatar.gameObject, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+            return true;
         }
         private static bool DrawDoubleFXWarning(VRCAvatarDescriptor avatar, bool warnNonHumanoid = true)
         {
@@ -2574,17 +2564,13 @@ namespace DreadScripts.VRCSDKPlus
             if (layers.Length > 3)
             {
                 var isDoubled = layers[3].type == layers[4].type;
-                if (isDoubled)
-                {
-                    EditorGUILayout.HelpBox("Your Avatar's Action playable layer is set as FX. This is an uncommon bug.", MessageType.Error);
-                    if (GUILayout.Button("Fix"))
-                    {
-                        avatar.baseAnimationLayers[3].type = VRCAvatarDescriptor.AnimLayerType.Action;
-                        EditorUtility.SetDirty(avatar);
-                    }
-                }
+                if (!isDoubled) return false;
+                EditorGUILayout.HelpBox("Your Avatar's Action playable layer is set as FX. This is an uncommon bug.", MessageType.Error);
+                if (!GUILayout.Button("Fix")) return true;
+                avatar.baseAnimationLayers[3].type = VRCAvatarDescriptor.AnimLayerType.Action;
+                EditorUtility.SetDirty(avatar);
 
-                return isDoubled;
+                return true;
             }
 
             if (warnNonHumanoid)
@@ -2599,17 +2585,17 @@ namespace DreadScripts.VRCSDKPlus
         #region Automated Methods
         private static void OverrideEditor(Type componentType, Type editorType)
         {
-            Type attributeType = Type.GetType("UnityEditor.CustomEditorAttributes, UnityEditor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
-            Type monoEditorType = Type.GetType("UnityEditor.CustomEditorAttributes+MonoEditorType, UnityEditor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
-            var editorsField = attributeType.GetField("kSCustomEditors", BindingFlags.Static | BindingFlags.NonPublic);
-            var inspectorField = monoEditorType.GetField("m_InspectorType", BindingFlags.Public | BindingFlags.Instance);
-            var editorDictionary = editorsField.GetValue(null) as IDictionary;
-            var editorsList = editorDictionary[componentType] as IList;
-            inspectorField.SetValue(editorsList[0], editorType);
+            var attributeType = Type.GetType("UnityEditor.CustomEditorAttributes, UnityEditor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
+            var monoEditorType = Type.GetType("UnityEditor.CustomEditorAttributes+MonoEditorType, UnityEditor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
+            var editorsField = attributeType?.GetField("kSCustomEditors", BindingFlags.Static | BindingFlags.NonPublic);
+            var inspectorField = monoEditorType?.GetField("m_InspectorType", BindingFlags.Public | BindingFlags.Instance);
+            var editorDictionary = editorsField?.GetValue(null) as IDictionary;
+            var editorsList = editorDictionary?[componentType] as IList;
+            inspectorField?.SetValue(editorsList?[0], editorType);
 
             var inspectorType = Type.GetType("UnityEditor.InspectorWindow, UnityEditor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
-            var myTestMethod = inspectorType.GetMethod("RefreshInspectors", BindingFlags.NonPublic | BindingFlags.Static);
-            myTestMethod.Invoke(null, null);
+            var myTestMethod = inspectorType?.GetMethod("RefreshInspectors", BindingFlags.NonPublic | BindingFlags.Static);
+            myTestMethod?.Invoke(null, null);
         }
 
 
@@ -2624,20 +2610,20 @@ namespace DreadScripts.VRCSDKPlus
         {
             EditorApplication.delayCall -= InitialOverride;
 
-            Type attributeType = Type.GetType("UnityEditor.CustomEditorAttributes, UnityEditor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
-            FieldInfo editorsInitializedField = attributeType.GetField("s_Initialized", BindingFlags.Static | BindingFlags.NonPublic);
+            var attributeType = Type.GetType("UnityEditor.CustomEditorAttributes, UnityEditor, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
+            var editorsInitializedField = attributeType?.GetField("s_Initialized", BindingFlags.Static | BindingFlags.NonPublic);
 
             try
             {
-                if (!(bool)editorsInitializedField.GetValue(null))
+                if (!(bool)editorsInitializedField?.GetValue(null)!)
                 {
-                    MethodInfo rebuildEditorsMethod = attributeType.GetMethod("Rebuild", BindingFlags.Static | BindingFlags.NonPublic);
-                    rebuildEditorsMethod.Invoke(null, null);
+                    var rebuildEditorsMethod = attributeType.GetMethod("Rebuild", BindingFlags.Static | BindingFlags.NonPublic);
+                    rebuildEditorsMethod?.Invoke(null, null);
                     editorsInitializedField.SetValue(null, true);
                 }
 
-                OverrideEditor(typeof(VRCExpressionParameters), typeof(VRCParamsPlus));
-                OverrideEditor(typeof(VRCExpressionsMenu), typeof(VRCMenuPlus));
+                OverrideEditor(typeof(VRCExpressionParameters), typeof(VrcParamsPlus));
+                OverrideEditor(typeof(VRCExpressionsMenu), typeof(VrcMenuPlus));
             }
             catch (Exception e)
             {
@@ -2653,24 +2639,24 @@ namespace DreadScripts.VRCSDKPlus
         [MenuItem("CONTEXT/VRCAvatarDescriptor/[SDK+] Quick Setup", false, 650)]
         private static void QuickSetup(MenuCommand command)
         {
-            VRCAvatarDescriptor desc = (VRCAvatarDescriptor)command.context;
-            Animator ani = desc.GetComponent<Animator>();
-            SerializedObject serialized = new SerializedObject(desc);
+            var desc = (VRCAvatarDescriptor)command.context;
+            var ani = desc.GetComponent<Animator>();
+            var serialized = new SerializedObject(desc);
 
             if (ani)
             {
-                Transform leftEye = ani.GetBoneTransform(HumanBodyBones.LeftEye);
-                Transform rightEye = ani.GetBoneTransform(HumanBodyBones.RightEye);
+                var leftEye = ani.GetBoneTransform(HumanBodyBones.LeftEye);
+                var rightEye = ani.GetBoneTransform(HumanBodyBones.RightEye);
 
-                Transform root = desc.transform;
+                var root = desc.transform;
                 float worldXPosition;
                 float worldYPosition;
                 float worldZPosition;
                 #region View Position
                 if (leftEye && rightEye)
                 {
-                    Transform betterLeft = leftEye.parent.Find("LeftEye");
-                    Transform betterRight = rightEye.parent.Find("RightEye");
+                    var betterLeft = leftEye.parent.Find("LeftEye");
+                    var betterRight = rightEye.parent.Find("RightEye");
                     leftEye = betterLeft ? betterLeft : leftEye;
                     rightEye = betterRight ? betterRight : rightEye;
                     var added = (leftEye.position + rightEye.position) / 2;
@@ -2680,13 +2666,13 @@ namespace DreadScripts.VRCSDKPlus
                 }
                 else
                 {
-                    Vector3 headPosition = ani.GetBoneTransform(HumanBodyBones.Head).position;
+                    var headPosition = ani.GetBoneTransform(HumanBodyBones.Head).position;
                     worldXPosition = headPosition.x;
                     worldYPosition = headPosition.y + ((headPosition.y - root.position.y) * 1.0357f - (headPosition.y - root.position.y));
                     worldZPosition = 0;
                 }
 
-                Vector3 realView = root.InverseTransformPoint(new Vector3(worldXPosition, worldYPosition, worldZPosition));
+                var realView = root.InverseTransformPoint(new Vector3(worldXPosition, worldYPosition, worldZPosition));
                 realView = new Vector3(Mathf.Approximately(realView.x, 0) ? 0 : realView.x, realView.y, (realView.z + 0.0547f * realView.y) / 2);
 
                 serialized.FindProperty("ViewPosition").vector3Value = realView;
@@ -2696,7 +2682,7 @@ namespace DreadScripts.VRCSDKPlus
 
                 if (leftEye && rightEye)
                 {
-                    SerializedProperty eyes = serialized.FindProperty("customEyeLookSettings");
+                    var eyes = serialized.FindProperty("customEyeLookSettings");
                     serialized.FindProperty("enableEyeLook").boolValue = true;
 
                     eyes.FindPropertyRelative("leftEye").objectReferenceValue = leftEye;
@@ -2706,15 +2692,15 @@ namespace DreadScripts.VRCSDKPlus
                     const float axisValue = 0.1305262f;
                     const float wValue = 0.9914449f;
 
-                    Quaternion upValue = new Quaternion(-axisValue, 0, 0, wValue);
-                    Quaternion downValue = new Quaternion(axisValue, 0, 0, wValue);
-                    Quaternion rightValue = new Quaternion(0, axisValue, 0, wValue);
-                    Quaternion leftValue = new Quaternion(0, -axisValue, 0, wValue);
+                    var upValue = new Quaternion(-axisValue, 0, 0, wValue);
+                    var downValue = new Quaternion(axisValue, 0, 0, wValue);
+                    var rightValue = new Quaternion(0, axisValue, 0, wValue);
+                    var leftValue = new Quaternion(0, -axisValue, 0, wValue);
 
-                    SerializedProperty up = eyes.FindPropertyRelative("eyesLookingUp");
-                    SerializedProperty right = eyes.FindPropertyRelative("eyesLookingRight");
-                    SerializedProperty down = eyes.FindPropertyRelative("eyesLookingDown");
-                    SerializedProperty left = eyes.FindPropertyRelative("eyesLookingLeft");
+                    var up = eyes.FindPropertyRelative("eyesLookingUp");
+                    var right = eyes.FindPropertyRelative("eyesLookingRight");
+                    var down = eyes.FindPropertyRelative("eyesLookingDown");
+                    var left = eyes.FindPropertyRelative("eyesLookingLeft");
 
                     void SetLeftAndRight(SerializedProperty p, Quaternion v)
                     {
@@ -2730,7 +2716,7 @@ namespace DreadScripts.VRCSDKPlus
 
                     #region Blinking
                     SkinnedMeshRenderer body = null;
-                    for (int i = 0; i < desc.transform.childCount; i++)
+                    for (var i = 0; i < desc.transform.childCount; i++)
                     {
                         if (body = desc.transform.GetChild(i).GetComponent<SkinnedMeshRenderer>())
                             break;
@@ -2738,14 +2724,14 @@ namespace DreadScripts.VRCSDKPlus
 
                     if (body && body.sharedMesh)
                     {
-                        for (int i = 0; i < body.sharedMesh.blendShapeCount; i++)
+                        for (var i = 0; i < body.sharedMesh.blendShapeCount; i++)
                         {
                             if (body.sharedMesh.GetBlendShapeName(i) != "Blink") continue;
 
                             eyes.FindPropertyRelative("eyelidType").enumValueIndex = 2;
                             eyes.FindPropertyRelative("eyelidsSkinnedMesh").objectReferenceValue = body;
 
-                            SerializedProperty blendShapes = eyes.FindPropertyRelative("eyelidsBlendshapes");
+                            var blendShapes = eyes.FindPropertyRelative("eyelidsBlendshapes");
                             blendShapes.arraySize = 3;
                             blendShapes.FindPropertyRelative("Array.data[0]").intValue = i;
                             blendShapes.FindPropertyRelative("Array.data[1]").intValue = -1;
@@ -2776,14 +2762,14 @@ namespace DreadScripts.VRCSDKPlus
                 return;
             }
             
-            Editor tempEditor = (Editor)Resources.FindObjectsOfTypeAll(descriptorEditor)[0];
-            descriptorEditor.GetMethod("AutoDetectLipSync", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(tempEditor, null);
+            var tempEditor = (UnityEditor.Editor)Resources.FindObjectsOfTypeAll(descriptorEditor)[0];
+            descriptorEditor.GetMethod("AutoDetectLipSync", BindingFlags.NonPublic | BindingFlags.Instance)?.Invoke(tempEditor, null);
         }
 
         #endregion
     }
 
-    internal static class VRCSDKPlusToolbox
+    internal static class VrcsdkPlusToolbox
     {
         #region Ready Paths
 		internal enum PathOption
@@ -2792,13 +2778,14 @@ namespace DreadScripts.VRCSDKPlus
 			ForceFolder,
 			ForceFile
 		}
-		internal static string ReadyAssetPath(string path, bool makeUnique = false, PathOption pathOption = PathOption.Normal)
+
+        private static string ReadyAssetPath(string path, bool makeUnique = false, PathOption pathOption = PathOption.Normal)
 		{
-			bool forceFolder = pathOption == PathOption.ForceFolder;
-			bool forceFile = pathOption == PathOption.ForceFile;
+			var forceFolder = pathOption == PathOption.ForceFolder;
+			var forceFile = pathOption == PathOption.ForceFile;
 
 			path = forceFile ? LegalizeName(path) : forceFolder ? LegalizePath(path) : LegalizeFullPath(path);
-			bool isFolder = forceFolder || (!forceFile && string.IsNullOrEmpty(Path.GetExtension(path)));
+			var isFolder = forceFolder || (!forceFile && string.IsNullOrEmpty(Path.GetExtension(path)));
 
 			if (isFolder)
 			{
@@ -2817,8 +2804,8 @@ namespace DreadScripts.VRCSDKPlus
 			else
 			{
 				const string basePath = "Assets";
-				string folderPath = Path.GetDirectoryName(path);
-				string fileName = Path.GetFileName(path);
+				var folderPath = Path.GetDirectoryName(path);
+				var fileName = Path.GetFileName(path);
 
 				if (string.IsNullOrEmpty(folderPath))
 					folderPath = basePath;
@@ -2844,27 +2831,23 @@ namespace DreadScripts.VRCSDKPlus
 		{
 			if (string.IsNullOrEmpty(fullNameOrExtension))
 				return ReadyAssetPath(LegalizePath(folderPath), makeUnique, PathOption.ForceFolder);
-			if (string.IsNullOrEmpty(folderPath))
-				return ReadyAssetPath(LegalizeName(fullNameOrExtension), makeUnique, PathOption.ForceFile);
-
-			return ReadyAssetPath($"{LegalizePath(folderPath)}/{LegalizeName(fullNameOrExtension)}", makeUnique);
-		}
+			return string.IsNullOrEmpty(folderPath) ? ReadyAssetPath(LegalizeName(fullNameOrExtension), makeUnique, PathOption.ForceFile) : ReadyAssetPath($"{LegalizePath(folderPath)}/{LegalizeName(fullNameOrExtension)}", makeUnique);
+        }
 		internal static string ReadyAssetPath(Object buddyAsset, string fullNameOrExtension = "", bool makeUnique = true)
 		{
 			var buddyPath = AssetDatabase.GetAssetPath(buddyAsset);
-			string folderPath = Path.GetDirectoryName(buddyPath);
+			var folderPath = Path.GetDirectoryName(buddyPath);
 			if (string.IsNullOrEmpty(fullNameOrExtension))
 				fullNameOrExtension = Path.GetFileName(buddyPath);
-			if (fullNameOrExtension.StartsWith("."))
-			{
-				string assetName = string.IsNullOrWhiteSpace(buddyAsset.name) ? "SomeAsset" : buddyAsset.name;
-				fullNameOrExtension = $"{assetName}{fullNameOrExtension}";
-			}
+            if (!fullNameOrExtension.StartsWith("."))
+                return ReadyAssetPath(folderPath, fullNameOrExtension, makeUnique);
+            var assetName = string.IsNullOrWhiteSpace(buddyAsset.name) ? "SomeAsset" : buddyAsset.name;
+            fullNameOrExtension = $"{assetName}{fullNameOrExtension}";
 
-			return ReadyAssetPath(folderPath, fullNameOrExtension, makeUnique);
+            return ReadyAssetPath(folderPath, fullNameOrExtension, makeUnique);
 		}
 
-		internal static string LegalizeFullPath(string path)
+        private static string LegalizeFullPath(string path)
 		{
 			if (string.IsNullOrEmpty(path))
 			{
@@ -2873,10 +2856,10 @@ namespace DreadScripts.VRCSDKPlus
 			}
 
 			var ext = Path.GetExtension(path);
-			bool isFolder = string.IsNullOrEmpty(ext);
+			var isFolder = string.IsNullOrEmpty(ext);
 			if (isFolder) return LegalizePath(path);
 
-			string folderPath = Path.GetDirectoryName(path);
+			var folderPath = Path.GetDirectoryName(path);
 			var fileName = LegalizeName(Path.GetFileNameWithoutExtension(path));
 
 			if (string.IsNullOrEmpty(folderPath)) return $"{fileName}{ext}";
@@ -2884,21 +2867,23 @@ namespace DreadScripts.VRCSDKPlus
 
 			return $"{folderPath}/{fileName}{ext}";
 		}
-		internal static string LegalizePath(string path)
+
+        private static string LegalizePath(string path)
 		{
-			string regexFolderReplace = Regex.Escape(new string(Path.GetInvalidPathChars()));
+			var regexFolderReplace = Regex.Escape(new string(Path.GetInvalidPathChars()));
 
 			path = path.Replace('\\', '/');
 			if (path.IndexOf('/') > 0)
-				path = string.Join("/", path.Split('/').Select(s => Regex.Replace(s, $@"[{regexFolderReplace}]", "-")));
+				path = string.Join("/", path.Split('/').Select(s => Regex.Replace(s, $"[{regexFolderReplace}]", "-")));
 
 			return path;
 
 		}
-		internal static string LegalizeName(string name)
+
+        private static string LegalizeName(string name)
 		{
-			string regexFileReplace = Regex.Escape(new string(Path.GetInvalidFileNameChars()));
-			return string.IsNullOrEmpty(name) ? "Unnamed" : Regex.Replace(name, $@"[{regexFileReplace}]", "-");
+			var regexFileReplace = Regex.Escape(new string(Path.GetInvalidFileNameChars()));
+			return string.IsNullOrEmpty(name) ? "Unnamed" : Regex.Replace(name, $"[{regexFileReplace}]", "-");
 		}
 		#endregion
         
@@ -2909,15 +2894,15 @@ namespace DreadScripts.VRCSDKPlus
             index = -1;
             return false;
         }
-        public static string GenerateUniqueString(string s, Func<string, bool> PassCondition, bool addNumberIfMissing = true)
+        public static string GenerateUniqueString(string s, Func<string, bool> passCondition, bool addNumberIfMissing = true)
         {
-            if (PassCondition(s)) return s;
+            if (passCondition(s)) return s;
             var match = Regex.Match(s, @"(?=.*)(\d+)$");
             if (!match.Success && !addNumberIfMissing) return s;
             var numberString = match.Success ? match.Groups[1].Value : "1";
             if (!match.Success && !s.EndsWith(" ")) s += " ";
             var newString = Regex.Replace(s, @"(?=.*?)\d+$", string.Empty);
-            while (!PassCondition($"{newString}{numberString}")) 
+            while (!passCondition($"{newString}{numberString}")) 
                 numberString = (int.Parse(numberString) + 1).ToString(new string('0', numberString.Length));
             
             return $"{newString}{numberString}";
@@ -2933,7 +2918,7 @@ namespace DreadScripts.VRCSDKPlus
                 {
                     EditorGUILayout.BeginVertical(GUI.skin.GetStyle("helpbox"), options);
 
-                    EditorGUILayout.LabelField(title, VRCSDKPlusToolbox.Styles.Label.Centered);
+                    EditorGUILayout.LabelField(title, Styles.Label.Centered);
                 }
 
                 public void Dispose() => EditorGUILayout.EndVertical();
@@ -2942,13 +2927,6 @@ namespace DreadScripts.VRCSDKPlus
             {
                 public Horizontal(params GUILayoutOption[] options)
                     => EditorGUILayout.BeginHorizontal(GUI.skin.GetStyle("helpbox"), options);
-
-                public Horizontal(string title, params GUILayoutOption[] options)
-                {
-                    EditorGUILayout.BeginHorizontal(GUI.skin.GetStyle("helpbox"), options);
-
-                    EditorGUILayout.LabelField(title, VRCSDKPlusToolbox.Styles.Label.Centered);
-                }
 
                 public void Dispose() => EditorGUILayout.EndHorizontal();
             }
@@ -2960,17 +2938,11 @@ namespace DreadScripts.VRCSDKPlus
             {
                 EditorGUILayout.BeginVertical(GUI.skin.GetStyle("helpbox"), options);
 
-                EditorGUILayout.LabelField(title, VRCSDKPlusToolbox.Styles.Label.Centered);
+                EditorGUILayout.LabelField(title, Styles.Label.Centered);
             }
             public static void EndLayout() => EditorGUILayout.EndVertical();
 
-            public static Rect GUIBox(float height)
-            {
-                var rect = EditorGUILayout.GetControlRect(false, height);
-                return GUIBox(ref rect);
-            }
-
-            public static Rect GUIBox(ref Rect rect)
+            public static void GUIBox(ref Rect rect)
             {
                 GUI.Box(rect, "", GUI.skin.GetStyle("helpbox"));
 
@@ -2978,8 +2950,6 @@ namespace DreadScripts.VRCSDKPlus
                 rect.width -= 8;
                 rect.y += 3;
                 rect.height -= 6;
-
-                return rect;
             }
         }
 
@@ -3003,15 +2973,13 @@ namespace DreadScripts.VRCSDKPlus
 
             public static class Label
             {
-                internal static readonly UnityEngine.GUIStyle Centered
-                    = new UnityEngine.GUIStyle(GUI.skin.label) {alignment = TextAnchor.MiddleCenter};
+                internal static readonly GUIStyle Centered = new(GUI.skin.label) {alignment = TextAnchor.MiddleCenter};
 
-                internal static readonly UnityEngine.GUIStyle RichText
-                    = new UnityEngine.GUIStyle(GUI.skin.label) {richText = true};
+                internal static readonly GUIStyle RichText = new(GUI.skin.label) {richText = true};
                 
 
-                internal static readonly UnityEngine.GUIStyle Type
-                    = new UnityEngine.GUIStyle(GUI.skin.label)
+                internal static readonly GUIStyle Type
+                    = new(GUI.skin.label)
                     {
                         alignment = TextAnchor.MiddleRight,
                         normal =
@@ -3021,17 +2989,17 @@ namespace DreadScripts.VRCSDKPlus
                         fontStyle = FontStyle.Italic,
                     };
 
-                internal static readonly UnityEngine.GUIStyle PlaceHolder
-                    = new UnityEngine.GUIStyle(Type)
+                internal static readonly GUIStyle PlaceHolder
+                    = new(Type)
                     {
                         fontSize = 11,
                         alignment = TextAnchor.MiddleLeft,
                         contentOffset = new Vector2(2.5f, 0)
                     };
-                internal static readonly GUIStyle faintLinkLabel = new GUIStyle(PlaceHolder) { name = "Toggle", hover = { textColor = new Color(0.3f, 0.7f, 1) } };
+                internal static readonly GUIStyle FaintLinkLabel = new(PlaceHolder) { name = "Toggle", hover = { textColor = new Color(0.3f, 0.7f, 1) } };
 
-                internal static readonly UnityEngine.GUIStyle TypeFocused
-                    = new UnityEngine.GUIStyle(GUI.skin.label)
+                internal static readonly GUIStyle TypeFocused
+                    = new(GUI.skin.label)
                     {
                         alignment = TextAnchor.MiddleRight,
                         normal =
@@ -3041,30 +3009,29 @@ namespace DreadScripts.VRCSDKPlus
                         fontStyle = FontStyle.Italic,
                     };
 
-                internal static readonly GUIStyle TypeLabel = new GUIStyle(PlaceHolder) {contentOffset = new Vector2(-2.5f, 0)};
-                internal static readonly GUIStyle RightPlaceHolder = new GUIStyle(TypeLabel) {alignment = TextAnchor.MiddleRight};
-                internal static readonly UnityEngine.GUIStyle Watermark
-                    = new UnityEngine.GUIStyle(PlaceHolder)
+                internal static readonly GUIStyle TypeLabel = new(PlaceHolder) {contentOffset = new Vector2(-2.5f, 0)};
+                internal static readonly GUIStyle RightPlaceHolder = new(TypeLabel) {alignment = TextAnchor.MiddleRight};
+                internal static readonly GUIStyle Watermark
+                    = new(PlaceHolder)
                     {
                         alignment = TextAnchor.MiddleRight,
                         fontSize  = 10,
                     };
 
-                internal static readonly UnityEngine.GUIStyle LabelDropdown
-                    = new UnityEngine.GUIStyle(GUI.skin.GetStyle("DropDownButton"))
+                internal static readonly GUIStyle LabelDropdown
+                    = new(GUI.skin.GetStyle("DropDownButton"))
                     {
                         alignment = TextAnchor.MiddleLeft,
                         contentOffset = new Vector2(2.5f, 0)
                     };
 
-                internal static readonly UnityEngine.GUIStyle RemoveIcon
-                    = new UnityEngine.GUIStyle(GUI.skin.GetStyle("RL FooterButton"));
+                internal static readonly GUIStyle RemoveIcon = new(GUI.skin.GetStyle("RL FooterButton"));
 
             }
 
-            internal static readonly GUIStyle icon = new GUIStyle(GUI.skin.label) {fixedWidth = 18, fixedHeight = 18};
-            internal static readonly UnityEngine.GUIStyle letterButton = 
-                new UnityEngine.GUIStyle(GUI.skin.button) { padding = new RectOffset(), margin = new RectOffset(1,1,1,1), richText = true};
+            internal static readonly GUIStyle Icon = new(GUI.skin.label) {fixedWidth = 18, fixedHeight = 18};
+            internal static readonly GUIStyle LetterButton = 
+                new(GUI.skin.button) { padding = new RectOffset(), margin = new RectOffset(1,1,1,1), richText = true};
 
         }
 
@@ -3093,80 +3060,78 @@ namespace DreadScripts.VRCSDKPlus
             public const string MissingParametersTooltip = "No Expression Parameters targeted. Auto-fill and warnings are disabled.";
             public const string MenuFullTooltip = "Menu's controls are already maxed out. (8/8)";
             public static readonly UnityEngine.GUIContent Copy
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconCopy))
+                = new(EditorGUIUtility.IconContent(Strings.IconCopy))
                 {
                     tooltip = "Copy"
                 };
 
             public static readonly UnityEngine.GUIContent Paste
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconPaste))
+                = new(EditorGUIUtility.IconContent(Strings.IconPaste))
                 {
                     tooltip = "Paste"
                 };
 
             public static readonly UnityEngine.GUIContent Move
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconMove))
+                = new(EditorGUIUtility.IconContent(Strings.IconMove))
                 {
                     tooltip = "Move"
                 };
             public static readonly UnityEngine.GUIContent Place
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconPlace))
+                = new(EditorGUIUtility.IconContent(Strings.IconPlace))
                 {
                     tooltip = "Place"
                 };
 
             public static readonly UnityEngine.GUIContent Duplicate
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconDuplicate))
+                = new(EditorGUIUtility.IconContent(Strings.IconDuplicate))
                 {
                     tooltip = "Duplicate"
                 };
 
-            public static readonly UnityEngine.GUIContent Help
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconHelp));
+            public static readonly UnityEngine.GUIContent Help = new(EditorGUIUtility.IconContent(Strings.IconHelp));
 
-            public static readonly UnityEngine.GUIContent Warn
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconWarn));
-            public static readonly UnityEngine.GUIContent Error
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconError));
+            public static readonly UnityEngine.GUIContent Warn = new(EditorGUIUtility.IconContent(Strings.IconWarn));
+            public static readonly UnityEngine.GUIContent Error = new(EditorGUIUtility.IconContent(Strings.IconError));
 
             public static readonly UnityEngine.GUIContent Clear
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconClear))
+                = new(EditorGUIUtility.IconContent(Strings.IconClear))
                 {
                     tooltip = "Clear"
                 };
 
             public static readonly UnityEngine.GUIContent Folder
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconFolder))
+                = new(EditorGUIUtility.IconContent(Strings.IconFolder))
                 {
                     tooltip = "Open"
                 };
 
             public static readonly UnityEngine.GUIContent Remove
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconRemove)) {tooltip = "Remove element from list"};
+                = new(EditorGUIUtility.IconContent(Strings.IconRemove)) {tooltip = "Remove element from list"};
 
             public static readonly UnityEngine.GUIContent Search
-                = new UnityEngine.GUIContent(EditorGUIUtility.IconContent(VRCSDKPlusToolbox.Strings.IconSearch)) {tooltip = "Search"};
+                = new(EditorGUIUtility.IconContent(Strings.IconSearch)) {tooltip = "Search"};
         }
         
         public static class Preferences
         {
             public static bool CompactMode
             {
-                get => EditorPrefs.GetBool(VRCSDKPlusToolbox.Strings.SettingsCompact, false);
-                set => EditorPrefs.SetBool(VRCSDKPlusToolbox.Strings.SettingsCompact, value);
+                get => EditorPrefs.GetBool(Strings.SettingsCompact, false);
+                set => EditorPrefs.SetBool(Strings.SettingsCompact, value);
             }
         }
 
-        public static Color BrightnessToColor(float brightness)
+        private static Color BrightnessToColor(float brightness)
         {
             if (brightness > 1) brightness /= 255;
             return new Color(brightness, brightness, brightness, 1);
         }
-        private static readonly Texture2D tempTexture = new Texture2D(1, 1) { anisoLevel = 0, filterMode = FilterMode.Point };
-        internal static Texture2D GetColorTexture(float rgb, float a = 1)
+        private static readonly Texture2D TempTexture = new(1, 1) { anisoLevel = 0, filterMode = FilterMode.Point };
+
+        private static Texture2D GetColorTexture(float rgb, float a = 1)
             => GetColorTexture(rgb, rgb, rgb, a);
 
-        internal static Texture2D GetColorTexture(float r, float g, float b, float a = 1)
+        private static Texture2D GetColorTexture(float r, float g, float b, float a = 1)
         {
             if (r > 1) r /= 255;
             if (g > 1) g /= 255;
@@ -3175,60 +3140,48 @@ namespace DreadScripts.VRCSDKPlus
 
             return GetColorTexture(new Color(r, g, b, a));
         }
-        internal static Texture2D GetColorTexture(Color color)
+
+        private static Texture2D GetColorTexture(Color color)
         {
-            tempTexture.SetPixel(0, 0, color);
-            tempTexture.Apply();
-            return tempTexture;
+            TempTexture.SetPixel(0, 0, color);
+            TempTexture.Apply();
+            return TempTexture;
         }
 
-        // ReSharper disable once InconsistentNaming
+        // ReSharper disable once InconsistentNaming  -Oh you use VS still? I much prefer rider
         public static VRCExpressionsMenu.Control.ControlType ToControlType(this SerializedProperty property)
         {
             var value = property.enumValueIndex;
-            switch (value)
+            return value switch
             {
-                case 0:
-                    return VRCExpressionsMenu.Control.ControlType.Button;
-                case 1:
-                    return VRCExpressionsMenu.Control.ControlType.Toggle;
-                case 2:
-                    return VRCExpressionsMenu.Control.ControlType.SubMenu;
-                case 3:
-                    return VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet;
-                case 4:
-                    return VRCExpressionsMenu.Control.ControlType.FourAxisPuppet;
-                case 5:
-                    return VRCExpressionsMenu.Control.ControlType.RadialPuppet;
-            }
-
-            return VRCExpressionsMenu.Control.ControlType.Button;
+                0 => VRCExpressionsMenu.Control.ControlType.Button,
+                1 => VRCExpressionsMenu.Control.ControlType.Toggle,
+                2 => VRCExpressionsMenu.Control.ControlType.SubMenu,
+                3 => VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet,
+                4 => VRCExpressionsMenu.Control.ControlType.FourAxisPuppet,
+                5 => VRCExpressionsMenu.Control.ControlType.RadialPuppet,
+                _ => VRCExpressionsMenu.Control.ControlType.Button
+            };
         }
 
         public static int GetEnumValueIndex(this VRCExpressionsMenu.Control.ControlType type)
         {
-            switch (type)
+            return type switch
             {
-                case VRCExpressionsMenu.Control.ControlType.Button:
-                    return 0;
-                case VRCExpressionsMenu.Control.ControlType.Toggle:
-                    return 1;
-                case VRCExpressionsMenu.Control.ControlType.SubMenu:
-                    return 2;
-                case VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet:
-                    return 3;
-                case VRCExpressionsMenu.Control.ControlType.FourAxisPuppet:
-                    return 4;
-                case VRCExpressionsMenu.Control.ControlType.RadialPuppet:
-                    return 5;
-                default:
-                    return -1;
-            }
+                VRCExpressionsMenu.Control.ControlType.Button => 0,
+                VRCExpressionsMenu.Control.ControlType.Toggle => 1,
+                VRCExpressionsMenu.Control.ControlType.SubMenu => 2,
+                VRCExpressionsMenu.Control.ControlType.TwoAxisPuppet => 3,
+                VRCExpressionsMenu.Control.ControlType.FourAxisPuppet => 4,
+                VRCExpressionsMenu.Control.ControlType.RadialPuppet => 5,
+                _ => -1
+            };
         }
 
         public static int FindIndex(this IEnumerable array, object target)
         {
             var enumerator = array.GetEnumerator();
+            using var enumerator1 = enumerator as IDisposable;
             var index = 0;
             while (enumerator.MoveNext())
             {
@@ -3247,7 +3200,7 @@ namespace DreadScripts.VRCSDKPlus
 
         internal static bool IterateArray(this SerializedProperty property, Func<int, SerializedProperty, bool> func, params int[] skipIndex)
         {
-            for (int i = property.arraySize - 1; i >= 0; i--)
+            for (var i = property.arraySize - 1; i >= 0; i--)
             {
                 if (skipIndex.Contains(i)) continue;
                 if (i >= property.arraySize) continue;
@@ -3275,26 +3228,26 @@ namespace DreadScripts.VRCSDKPlus
         internal static bool HasReceivedCommand(EventCommands command, string matchFocusControl = "", bool useEvent = true)
         {
             if (!string.IsNullOrEmpty(matchFocusControl) && GUI.GetNameOfFocusedControl() != matchFocusControl) return false;
-            Event e = Event.current;
+            var e = Event.current;
             if (e.type != EventType.ValidateCommand) return false;
-            bool received = command.ToString() == e.commandName;
+            var received = command.ToString() == e.commandName;
             if (received && useEvent) e.Use();
             return received;
         }
 
-        internal static bool HasReceivedKey(KeyCode key, string matchFocusControl = "", bool useEvent = true)
+        private static bool HasReceivedKey(KeyCode key, string matchFocusControl = "", bool useEvent = true)
         {
             if (!string.IsNullOrEmpty(matchFocusControl) && GUI.GetNameOfFocusedControl() != matchFocusControl) return false;
-            Event e = Event.current;
-            bool received = e.type == EventType.KeyDown && e.keyCode == key;
+            var e = Event.current;
+            var received = e.type == EventType.KeyDown && e.keyCode == key;
             if (received && useEvent) e.Use();
             return received;
         }
 
-        internal static bool HasReceivedEnter(string matchFocusControl = "",bool useEvent = true) => HasReceivedKey(KeyCode.Return, matchFocusControl, useEvent) || HasReceivedKey(KeyCode.KeypadEnter, matchFocusControl, useEvent);
-        internal static bool HasReceivedCancel(string matchFocusControl = "",  bool useEvent = true) => HasReceivedKey(KeyCode.Escape, matchFocusControl, useEvent);
+        private static bool HasReceivedEnter(string matchFocusControl = "",bool useEvent = true) => HasReceivedKey(KeyCode.Return, matchFocusControl, useEvent) || HasReceivedKey(KeyCode.KeypadEnter, matchFocusControl, useEvent);
+        private static bool HasReceivedCancel(string matchFocusControl = "",  bool useEvent = true) => HasReceivedKey(KeyCode.Escape, matchFocusControl, useEvent);
         internal static bool HasReceivedAnyDelete(string matchFocusControl = "", bool useEvent = true) => HasReceivedCommand(EventCommands.SoftDelete, matchFocusControl, useEvent) || HasReceivedCommand(EventCommands.Delete, matchFocusControl, useEvent) || HasReceivedKey(KeyCode.Delete, matchFocusControl, useEvent);
-        internal static bool HandleConfirmEvents(string matchFocusControl = "", Action onConfirm = null, Action onCancel = null)
+        private static bool HandleConfirmEvents(string matchFocusControl = "", Action onConfirm = null, Action onCancel = null)
         {
             if (HasReceivedEnter(matchFocusControl))
             {
@@ -3302,31 +3255,28 @@ namespace DreadScripts.VRCSDKPlus
                 return true;
             }
 
-            if (HasReceivedCancel(matchFocusControl))
-            {
-                onCancel?.Invoke();
-                return true;
-            }
-            return false;
+            if (!HasReceivedCancel(matchFocusControl)) return false;
+            onCancel?.Invoke();
+            return true;
         }
 
-        internal static bool HandleTextFocusConfirmCommands(string matchFocusControl, Action onConfirm = null, Action onCancel = null)
+        internal static void HandleTextFocusConfirmCommands(string matchFocusControl, Action onConfirm = null,
+            Action onCancel = null)
         {
-            if (!HandleConfirmEvents(matchFocusControl, onConfirm, onCancel)) return false;
+            if (!HandleConfirmEvents(matchFocusControl, onConfirm, onCancel)) return;
             GUI.FocusControl(null);
-            return true;
         }
         #endregion
 
         internal abstract class CustomDropdownBase : PopupWindowContent
         {
-            internal static readonly GUIStyle backgroundStyle = new GUIStyle()
+            internal static readonly GUIStyle BackgroundStyle = new()
             {
-                hover = { background = VRCSDKPlusToolbox.GetColorTexture(new Color(0.3020f, 0.3020f, 0.3020f)) },
-                active = { background = VRCSDKPlusToolbox.GetColorTexture(new Color(0.1725f, 0.3647f, 0.5294f)) }
+                hover = { background = GetColorTexture(new Color(0.3020f, 0.3020f, 0.3020f)) },
+                active = { background = GetColorTexture(new Color(0.1725f, 0.3647f, 0.5294f)) }
             };
 
-            internal static readonly GUIStyle titleStyle = new GUIStyle(GUI.skin.label)
+            internal static readonly GUIStyle TitleStyle = new(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,
                 fontStyle = FontStyle.Bold
@@ -3336,43 +3286,32 @@ namespace DreadScripts.VRCSDKPlus
         internal class CustomDropdown<T> : CustomDropdownBase
         {
 
-            private readonly string title;
-            private string search;
-            internal DropDownItem[] items;
-            private readonly Action<DropDownItem> itemGUI;
-            private readonly Action<int, T> onSelected;
-            private Func<T, string, bool> onSearchChanged;
+            private readonly string _title;
+            private string _search;
+            private DropDownItem[] Items;
+            private readonly Action<DropDownItem> _itemGUI;
+            private readonly Action<int, T> _onSelected;
+            private Func<T, string, bool> _onSearchChanged;
 
-            private bool hasSearch;
-            private float width;
-            private bool firstPass = true;
-            private Vector2 scroll;
-            private readonly Rect[] selectionRects;
+            private bool _hasSearch;
+            private float _width;
+            private bool _firstPass = true;
+            private Vector2 _scroll;
+            private readonly Rect[] _selectionRects;
 
             public CustomDropdown(string title, IEnumerable<T> itemArray, Action<DropDownItem> itemGUI, Action<int, T> onSelected)
             {
-                this.title = title;
-                this.onSelected = onSelected;
-                this.itemGUI = itemGUI;
-                items = itemArray.Select((item, i) => new DropDownItem(item, i)).ToArray();
-                selectionRects = new Rect[items.Length];
+                _title = title;
+                _onSelected = onSelected;
+                _itemGUI = itemGUI;
+                Items = itemArray.Select((item, i) => new DropDownItem(item, i)).ToArray();
+                _selectionRects = new Rect[Items.Length];
             }
 
             public void EnableSearch(Func<T, string, bool> onSearchChanged)
             {
-                hasSearch = true;
-                this.onSearchChanged = onSearchChanged;
-            }
-
-            public void OrderBy(Func<T, object> orderFunc)
-            {
-                items = orderFunc != null ? items.OrderBy(item => orderFunc(item.value)).ToArray() : items;
-            }
-
-            public void SetExtraOptions(Func<T, object[]> argReturn)
-            {
-                foreach (var i in items)
-                    i.args = argReturn(i.value);
+                _hasSearch = true;
+                _onSearchChanged = onSearchChanged;
             }
 
             public override void OnGUI(Rect rect)
@@ -3381,52 +3320,50 @@ namespace DreadScripts.VRCSDKPlus
                 using (new GUILayout.AreaScope(rect))
                 {
                     var e = Event.current;
-                    scroll = GUILayout.BeginScrollView(scroll);
-                    if (!string.IsNullOrEmpty(title))
+                    _scroll = GUILayout.BeginScrollView(_scroll);
+                    if (!string.IsNullOrEmpty(_title))
                     {
-                        GUILayout.Label(title, titleStyle);
+                        GUILayout.Label(_title, TitleStyle);
                         DrawSeparator();
                     }
-                    if (hasSearch)
+                    if (_hasSearch)
                     {
                         EditorGUI.BeginChangeCheck();
-                        if (firstPass) GUI.SetNextControlName($"{title}SearchBar");
-                        search = EditorGUILayout.TextField(search, GUI.skin.GetStyle("SearchTextField"));
+                        if (_firstPass) GUI.SetNextControlName($"{_title}SearchBar");
+                        _search = EditorGUILayout.TextField(_search, GUI.skin.GetStyle("SearchTextField"));
                         if (EditorGUI.EndChangeCheck())
                         {
-                            foreach (var i in items)
-                                i.displayed = onSearchChanged(i.value, search);
+                            foreach (var i in Items)
+                                i.Displayed = _onSearchChanged(i.Value, _search);
                         }
                     }
 
                     var t = e.type;
-                    for (int i = 0; i < items.Length; i++)
+                    for (var i = 0; i < Items.Length; i++)
                     {
-                        var item = items[i];
-                        if (!item.displayed) continue;
-                        if (!firstPass)
+                        var item = Items[i];
+                        if (!item.Displayed) continue;
+                        if (!_firstPass)
                         {
-                            if (GUI.Button(selectionRects[i], string.Empty, backgroundStyle))
+                            if (GUI.Button(_selectionRects[i], string.Empty, BackgroundStyle))
                             {
-                                onSelected(item.itemIndex, item.value);
+                                _onSelected(item.ItemIndex, item.Value);
                                 editorWindow.Close();
                             }
                         }
-                        using (new GUILayout.VerticalScope()) itemGUI(item);
+                        using (new GUILayout.VerticalScope()) _itemGUI(item);
 
-                        if (t == EventType.Repaint)
-                        {
-                            selectionRects[i] = GUILayoutUtility.GetLastRect();
+                        if (t != EventType.Repaint) continue;
+                        _selectionRects[i] = GUILayoutUtility.GetLastRect();
 
-                            if (firstPass && selectionRects[i].width > width)
-                                width = selectionRects[i].width;
-                        }
+                        if (_firstPass && _selectionRects[i].width > _width)
+                            _width = _selectionRects[i].width;
                     }
 
-                    if (t == EventType.Repaint && firstPass)
+                    if (t == EventType.Repaint && _firstPass)
                     {
-                        firstPass = false;
-                        GUI.FocusControl($"{title}SearchBar");
+                        _firstPass = false;
+                        GUI.FocusControl($"{_title}SearchBar");
                     }
                     GUILayout.EndScrollView();
                     if (rect.Contains(e.mousePosition))
@@ -3436,43 +3373,49 @@ namespace DreadScripts.VRCSDKPlus
 
             public override Vector2 GetWindowSize()
             {
-                Vector2 ogSize = base.GetWindowSize();
-                if (!firstPass) ogSize.x = width + 21;
+                var ogSize = base.GetWindowSize();
+                if (!_firstPass) ogSize.x = _width + 21;
                 return ogSize;
             }
 
             public void Show(Rect position) => PopupWindow.Show(position, this);
             internal class DropDownItem
             {
-                internal readonly int itemIndex;
-                internal readonly T value;
+                internal readonly int ItemIndex;
+                internal readonly T Value;
 
-                internal object[] args;
-                internal bool displayed = true;
+                private readonly object[] _args;
+                internal bool Displayed = true;
 
-                internal object extra
+                internal object Extra
                 {
-                    get => args[0];
-                    set => args[0] = value;
+                    get => _args[0];
+                    set => _args[0] = value;
                 }
 
-                internal DropDownItem(T value, int itemIndex)
+                internal DropDownItem(T value, int itemIndex, object[] args)
                 {
-                    this.value = value;
-                    this.itemIndex = itemIndex;
+                    Value = value;
+                    ItemIndex = itemIndex;
+                    _args = args;
                 }
 
-                public static implicit operator T(DropDownItem i) => i.value;
+                public DropDownItem(T value, int itemIndex)
+                {
+                    throw new NotImplementedException();
+                }
+
+                public static implicit operator T(DropDownItem i) => i.Value;
             }
 
             private static void DrawSeparator(int thickness = 2, int padding = 10)
             {
-                Rect r = EditorGUILayout.GetControlRect(GUILayout.Height(thickness + padding));
+                var r = EditorGUILayout.GetControlRect(GUILayout.Height(thickness + padding));
                 r.height = thickness;
                 r.y += padding / 2f;
                 r.x -= 2;
                 r.width += 6;
-                ColorUtility.TryParseHtmlString(EditorGUIUtility.isProSkin ? "#595959" : "#858585", out Color lineColor);
+                ColorUtility.TryParseHtmlString(EditorGUIUtility.isProSkin ? "#595959" : "#858585", out var lineColor);
                 EditorGUI.DrawRect(r, lineColor);
             }
 
